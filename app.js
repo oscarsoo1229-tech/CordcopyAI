@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   // After deploying the backend, replace this with its Render URL (no trailing slash).
-  const API_BASE_URL = 'https://YOUR-CHORDLENS-SERVER.onrender.com';
+  const API_BASE_URL = 'https://cordcopyai.onrender.com';
   const $ = id => document.getElementById(id);
   const NOTES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
   const NOTE_INDEX = Object.fromEntries(NOTES.map((n,i)=>[n,i]));
