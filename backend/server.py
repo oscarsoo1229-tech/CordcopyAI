@@ -55,7 +55,19 @@ class Handler(SimpleHTTPRequestHandler):
                 self._json_error(503, "서버에 yt-dlp와 FFmpeg를 설치해야 합니다."); return
             with tempfile.TemporaryDirectory(prefix="chordlens-") as tmp:
                 output = str(Path(tmp) / "audio.%(ext)s")
-                cmd = ["yt-dlp", "--no-playlist", "--max-filesize", "80M", "-f", "bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "5", "-o", output, raw]
+                cmd = [
+    "yt-dlp",
+    "--no-playlist",
+    "--max-filesize", "80M",
+    "--js-runtimes", "deno",
+    "--remote-components", "ejs:github",
+    "-f", "bestaudio/best",
+    "-x",
+    "--audio-format", "mp3",
+    "--audio-quality", "5",
+    "-o", output,
+    raw
+]
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
                 files = list(Path(tmp).glob("audio.*"))
                 files = [f for f in files if f.suffix.lower() in {".mp3", ".m4a", ".opus", ".wav", ".webm"}]
