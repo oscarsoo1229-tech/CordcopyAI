@@ -12,7 +12,7 @@ RUN apt-get update \
 
 # Deno JavaScript 런타임 설치
 RUN curl -fsSL https://deno.land/install.sh | sh \
-    && ln -sf /usr/local/bin/deno /usr/local/bin/deno
+    && deno --version
 
 # yt-dlp와 EJS 구성 요소 설치
 RUN pip install --no-cache-dir --upgrade "yt-dlp[default]"
