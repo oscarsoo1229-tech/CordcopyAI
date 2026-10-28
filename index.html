@@ -51,8 +51,8 @@
 
     <section class="panel score-panel" id="printableScore">
       <div class="section-heading"><span class="step">04</span><div><h2>코드 진행 악보</h2><p>재생 위치에 맞춰 현재 코드가 강조됩니다.</p></div></div>
-      <div class="score-toolbar"><span id="scoreCapoLabel">카포 없음 · 운지 코드 기준</span><button id="printScore" class="button tiny secondary" disabled>악보 인쇄 / PDF 저장</button></div>
-      <p class="help">각 칸은 분석된 시간 구간입니다. 정확한 마디·박자·스트로크 또는 멜로디 TAB을 뜻하지 않습니다.</p>
+      <div class="beat-controls"><label>BPM <input id="songBpm" type="number" min="40" max="240" step="1" value="120"></label><label>박자 <select id="timeSignature"><option value="4">4/4</option><option value="3">3/4</option><option value="2">2/4</option><option value="6">6/8 (8분음표 기준)</option></select></label><label>첫 마디 시작 (초) <input id="beatOffset" type="number" min="0" step="0.1" value="0"></label><button id="detectBpm" class="button tiny secondary" type="button">BPM 자동 추정</button><button id="setDownbeat" class="button tiny secondary" type="button">현재 재생 위치를 첫 마디로</button></div><p class="help" id="beatStatus">BPM은 직접 입력하거나 자동 추정할 수 있어요. 첫 마디 시작 위치를 맞추면 마디 정렬이 개선됩니다.</p><div class="score-toolbar"><span id="scoreCapoLabel">카포 없음 · 운지 코드 기준</span><button id="printScore" class="button tiny secondary" disabled>악보 인쇄 / PDF 저장</button></div>
+      <p class="help">BPM과 첫 마디 시작을 기준으로 코드를 마디·박에 배치합니다. BPM과 박자표는 추정 또는 수동 설정이며 정확한 채보를 보장하지 않습니다.</p>
       <div id="chordScore" class="chord-score"><div class="empty-state">분석하면 코드 진행 악보가 표시됩니다.</div></div>
     </section>
     <section class="panel fingering-panel">

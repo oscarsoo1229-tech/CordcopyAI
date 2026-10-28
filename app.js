@@ -69,19 +69,78 @@
       b.addEventListener('click',()=>selectResult(i));wrap.appendChild(b);
     });renderScore();
   }
+  function beatSettings(){
+    const bpm=Math.min(240,Math.max(40,Number($('songBpm').value)||120));
+    const beats=Number($('timeSignature').value)||4;
+    const offset=Math.max(0,Number($('beatOffset').value)||0);
+    const beatDuration=60/bpm*(beats===6?.5:1);
+    return {bpm,beats,offset,beatDuration,measureDuration:beatDuration*beats};
+  }
+  function chordAt(t){
+    const hit=results.find(r=>t>=r.start&&t<r.end);
+    return hit || results.find(r=>r.start>t) || results[results.length-1];
+  }
   function renderScore(){
     const score=$('chordScore');score.innerHTML='';
-    if(!results.length){score.innerHTML='<div class="empty-state">분석하면 코드 진행 악보가 표시됩니다.</div>';return;}
-    results.forEach((r,i)=>{
-      const cell=document.createElement('button');cell.type='button';cell.className='score-cell'+(i===selectedIndex?' active':'');cell.dataset.index=i;
-      cell.innerHTML=`<span class="score-number">구간 ${i+1} · ${fmtTime(r.start)}</span><strong>${escapeHtml(capoShape(r.chord))}</strong><span class="score-duration">${(r.end-r.start).toFixed(1)}초</span>`;
-      cell.addEventListener('click',()=>selectResult(i));score.appendChild(cell);
-    });
-    $('scoreCapoLabel').textContent=Number($('capoFret').value)?`카포 ${$('capoFret').value}프렛 · 운지 코드 기준`:'카포 없음 · 운지 코드 기준';
+    if(!results.length){score.innerHTML='<div class="empty-state">분석하면 마디별 코드 악보가 표시됩니다.</div>';return;}
+    const {bpm,beats,offset,beatDuration,measureDuration}=beatSettings();
+    const duration=audioBuffer?.duration||results[results.length-1].end;
+    const count=Math.min(1000,Math.max(0,Math.ceil((duration-offset)/measureDuration)));
+    for(let m=0;m<count;m++){
+      const start=offset+m*measureDuration;
+      const measure=document.createElement('div');measure.className='score-measure';measure.dataset.start=start;measure.dataset.end=Math.min(duration,start+measureDuration);
+      const head=document.createElement('div');head.className='measure-heading';head.textContent=`${m+1}마디 · ${fmtTime(start)}`;measure.appendChild(head);
+      const beatsRow=document.createElement('div');beatsRow.className='measure-beats';
+      for(let b=0;b<beats;b++){
+        const t=start+b*beatDuration;
+        const r=chordAt(Math.min(duration-.001,t+beatDuration*.45));
+        const button=document.createElement('button');button.type='button';button.className='measure-beat';button.dataset.time=t;
+        button.innerHTML=`<small>${b+1}</small><strong>${escapeHtml(capoShape(r?.chord||'N'))}</strong>`;
+        button.title=`${m+1}마디 ${b+1}박 · ${fmtTime(t)}`;
+        button.addEventListener('click',()=>{player.currentTime=Math.min(t,duration);const i=results.indexOf(chordAt(t));if(i>=0)selectResult(i);updateBeatHighlight();});
+        beatsRow.appendChild(button);
+      }
+      measure.appendChild(beatsRow);score.appendChild(measure);
+    }
+    $('scoreCapoLabel').textContent=`${bpm} BPM · ${$('timeSignature').selectedOptions[0].text} · `+(Number($('capoFret').value)?`카포 ${$('capoFret').value}프렛`:'카포 없음');
+    updateBeatHighlight();
   }
+  function updateBeatHighlight(){
+    const t=player.currentTime;
+    const {offset,beatDuration}=beatSettings();
+    const index=Math.floor((t-offset)/beatDuration);
+    $('chordScore').querySelectorAll('.measure-beat').forEach(el=>{
+      const i=Math.round((Number(el.dataset.time)-offset)/beatDuration);
+      el.classList.toggle('active',i===index&&index>=0);
+    });
+  }
+  function estimateBpm(buffer){
+    // Onset-envelope autocorrelation. A rough tempo hint, not a verified downbeat or meter.
+    const sr=buffer.sampleRate, stride=Math.max(1,Math.round(sr/100)), len=Math.min(buffer.length,Math.round(sr*100));
+    const channel=buffer.getChannelData(0), bins=Math.floor(len/stride), envelope=new Float64Array(bins);
+    for(let i=0;i<bins;i++){let sum=0;const base=i*stride;for(let j=0;j<stride&&base+j<len;j++){const v=channel[base+j];sum+=v*v;}envelope[i]=Math.sqrt(sum/stride);}
+    const onset=new Float64Array(bins);for(let i=1;i<bins;i++)onset[i]=Math.max(0,envelope[i]-envelope[i-1]);
+    let bestBpm=120,bestScore=-1;
+    for(let bpm=60;bpm<=200;bpm++){
+      const lag=Math.round(6000/bpm);let score=0;
+      for(let i=lag;i<bins;i++)score+=onset[i]*onset[i-lag];
+      score/=Math.max(1,bins-lag);
+      if(score>bestScore){bestScore=score;bestBpm=bpm;}
+    }
+    return bestBpm;
+  }
+  ['songBpm','timeSignature','beatOffset'].forEach(id=>$(id).addEventListener('change',renderScore));
+  $('detectBpm').addEventListener('click',()=>{
+    if(!audioBuffer){$('beatStatus').textContent='먼저 음원을 불러와 주세요.';return;}
+    const bpm=estimateBpm(audioBuffer);$('songBpm').value=String(bpm);
+    $('beatStatus').textContent=`추정 BPM: ${bpm}. 2배/절반 템포로 인식될 수 있으니 실제 박자에 맞춰 조정하세요.`;
+    renderScore();
+  });
+  $('setDownbeat').addEventListener('click',()=>{$('beatOffset').value=player.currentTime.toFixed(2);renderScore();});
   function highlightPlayback(){
     if(!results.length)return;
     const t=player.currentTime;
+    updateBeatHighlight();
     let i=results.findIndex(r=>t>=r.start&&t<r.end);
     if(i<0&&t>=results[results.length-1].end)i=results.length-1;
     if(i<0||i===selectedIndex)return;
