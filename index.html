@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10131b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ChordLens">
+  <meta name="description" content="음원에서 기타 코드를 추정하고 카포와 운지표를 확인하는 도구">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>ChordLens — 기타 코드 분석</title>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark">CL</div>
+      <div><h1>ChordLens</h1><p>기타 코드 분석 스튜디오</p></div>
+      <span class="local-badge">기기 내 분석</span>
+    </header>
+
+    <section class="panel input-panel">
+      <div class="section-heading"><span class="step">01</span><div><h2>곡 불러오기</h2><p>음원 파일은 이 기기에서 분석합니다.</p></div></div>
+      <label class="file-drop" for="audioFile"><span class="upload-icon">↑</span><strong>음원 파일 선택</strong><small>MP3 · WAV · M4A · AAC 등 브라우저가 지원하는 형식</small><input id="audioFile" type="file" accept="audio/*"></label>
+      <div id="fileStatus" class="status-line">선택된 음원 없음</div>
+      <div class="divider-label"><span>또는 유튜브 링크</span></div>
+      <div class="url-row"><input id="youtubeUrl" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="url"><button id="openYoutube" class="button secondary">영상 열기</button></div>
+      <p class="help">유튜브 링크는 영상 열기와 선택적 서버 분석에 사용할 수 있습니다. 브라우저만으로는 유튜브의 음원을 직접 읽을 수 없어, 코드 분석에는 음원 파일을 선택하거나 아래 서버 기능을 설정해야 합니다.</p>
+      <button id="analyzeYoutube" class="button primary full">유튜브 링크 음원 분석 시도</button>
+      <div id="youtubeStatus" class="status-line" aria-live="polite"></div>
+    </section>
+
+    <section class="panel controls-panel">
+      <div class="section-heading"><span class="step">02</span><div><h2>분석 설정</h2><p>정확도와 카포를 조절하세요.</p></div></div>
+      <div class="settings-grid">
+        <label>분석 간격<select id="hopSize"><option value="0.5">0.5초 — 자세히</option><option value="1" selected>1초 — 기본</option><option value="2">2초 — 빠르게</option></select></label>
+        <label>카포 위치<select id="capoFret"><option value="0">카포 없음</option><option value="1">1프렛</option><option value="2">2프렛</option><option value="3">3프렛</option><option value="4">4프렛</option><option value="5">5프렛</option><option value="6">6프렛</option><option value="7">7프렛</option><option value="8">8프렛</option><option value="9">9프렛</option><option value="10">10프렛</option><option value="11">11프렛</option><option value="12">12프렛</option></select></label>
+      </div>
+      <div class="button-row"><button id="recommendCapo" class="button secondary">카포 추천</button><button id="analyzeFile" class="button primary" disabled>코드 분석 시작</button></div>
+      <div id="analysisStatus" class="status-line" aria-live="polite">음원을 선택하면 분석을 시작할 수 있습니다.</div>
+    </section>
+
+    <section class="panel result-panel">
+      <div class="section-heading"><span class="step">03</span><div><h2>코드 진행</h2><p>코드를 누르면 해당 구간으로 이동합니다.</p></div></div>
+      <div class="player-wrap"><audio id="audioPlayer" controls playsinline preload="metadata"></audio><div class="player-tools"><span id="durationLabel">00:00</span><button id="loopToggle" class="button tiny secondary" aria-pressed="false">구간 반복 꺼짐</button><button id="exportCsv" class="button tiny secondary" disabled>CSV 저장</button></div></div>
+      <div id="chordTimeline" class="chord-timeline"><div class="empty-state">분석 결과가 여기에 표시됩니다.</div></div>
+      <div class="loop-controls"><label>시작 <input id="loopStart" type="number" min="0" step="0.5" value="0"></label><label>끝 <input id="loopEnd" type="number" min="0" step="0.5" value="10"></label><button id="setLoop" class="button secondary">구간 설정</button></div>
+    </section>
+
+    <section class="panel fingering-panel">
+      <div class="section-heading"><span class="step">04</span><div><h2>기타 운지표</h2><p id="fingeringSubtitle">코드를 선택하면 운지표를 볼 수 있습니다.</p></div></div>
+      <div class="selected-chord"><div><small>선택한 코드</small><div id="selectedChord" class="big-chord">—</div></div><div><small>카포 적용 운지</small><div id="shapeChord" class="big-chord accent">—</div></div></div>
+      <div id="fretboard" class="fretboard"><div class="empty-state">분석 후 코드 카드를 선택하세요.</div></div>
+      <div id="fingeringNote" class="help">운지표는 일반적인 초보자용 폼을 우선 표시합니다. 일부 코드/변형 코드는 운지 정보가 없을 수 있습니다.</div>
+    </section>
+
+    <footer><p>ChordLens iOS PWA · 코드 추정은 자동 분석 결과이며 악보와 다를 수 있습니다.</p><p><a href="README.md">설치 및 사용 안내</a></p></footer>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,2 @@
+# No Python packages are required for local file analysis.
+# Optional YouTube-link backend requires the yt-dlp command and FFmpeg executable installed on the host.
