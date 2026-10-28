@@ -45,12 +45,18 @@
     <section class="panel result-panel">
       <div class="section-heading"><span class="step">03</span><div><h2>코드 진행</h2><p>코드를 누르면 해당 구간으로 이동합니다.</p></div></div>
       <div class="player-wrap"><audio id="audioPlayer" controls playsinline preload="metadata"></audio><div class="player-tools"><span id="durationLabel">00:00</span><button id="loopToggle" class="button tiny secondary" aria-pressed="false">구간 반복 꺼짐</button><button id="exportCsv" class="button tiny secondary" disabled>CSV 저장</button></div></div>
-      <div id="chordTimeline" class="chord-timeline"><div class="empty-state">분석 결과가 여기에 표시됩니다.</div></div>
+      <p class="help">큰 코드명은 카포에 맞춰 손으로 잡을 코드이며, 아래 작은 글씨는 실제 울리는 코드입니다.</p><div id="chordTimeline" class="chord-timeline"><div class="empty-state">분석 결과가 여기에 표시됩니다.</div></div>
       <div class="loop-controls"><label>시작 <input id="loopStart" type="number" min="0" step="0.5" value="0"></label><label>끝 <input id="loopEnd" type="number" min="0" step="0.5" value="10"></label><button id="setLoop" class="button secondary">구간 설정</button></div>
     </section>
 
+    <section class="panel score-panel" id="printableScore">
+      <div class="section-heading"><span class="step">04</span><div><h2>코드 진행 악보</h2><p>재생 위치에 맞춰 현재 코드가 강조됩니다.</p></div></div>
+      <div class="score-toolbar"><span id="scoreCapoLabel">카포 없음 · 운지 코드 기준</span><button id="printScore" class="button tiny secondary" disabled>악보 인쇄 / PDF 저장</button></div>
+      <p class="help">각 칸은 분석된 시간 구간입니다. 정확한 마디·박자·스트로크 또는 멜로디 TAB을 뜻하지 않습니다.</p>
+      <div id="chordScore" class="chord-score"><div class="empty-state">분석하면 코드 진행 악보가 표시됩니다.</div></div>
+    </section>
     <section class="panel fingering-panel">
-      <div class="section-heading"><span class="step">04</span><div><h2>기타 운지표</h2><p id="fingeringSubtitle">코드를 선택하면 운지표를 볼 수 있습니다.</p></div></div>
+      <div class="section-heading"><span class="step">05</span><div><h2>기타 운지표</h2><p id="fingeringSubtitle">코드를 선택하면 운지표를 볼 수 있습니다.</p></div></div>
       <div class="selected-chord"><div><small>선택한 코드</small><div id="selectedChord" class="big-chord">—</div></div><div><small>카포 적용 운지</small><div id="shapeChord" class="big-chord accent">—</div></div></div>
       <div id="fretboard" class="fretboard"><div class="empty-state">분석 후 코드 카드를 선택하세요.</div></div>
       <div id="fingeringNote" class="help">운지표는 일반적인 초보자용 폼을 우선 표시합니다. 일부 코드/변형 코드는 운지 정보가 없을 수 있습니다.</div>
