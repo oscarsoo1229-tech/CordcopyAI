@@ -51,10 +51,52 @@
       const norm=Math.sqrt(chroma.reduce((a,b)=>a+b*b,0))||1;for(let i=0;i<12;i++)chroma[i]/=norm;
       const match=bestChord(chroma);frames.push({start:start/sr,end:Math.min((start+hop)/sr,buffer.duration),chord:match.chord,confidence:match.score});
     }
-    const grouped=[];for(const f of frames){const last=grouped[grouped.length-1];if(last&&last.chord===f.chord&&f.start-last.start<Math.max(4,hopSeconds*4)){last.end=f.end;last.confidence=(last.confidence+f.confidence)/2;}else grouped.push({...f});}
-    // Remove extremely short changes when adjacent chord is the same on both sides.
-    for(let i=1;i<grouped.length-1;i++){if(grouped[i].end-grouped[i].start<Math.max(.35,hopSeconds*.65)&&grouped[i-1].chord===grouped[i+1].chord){grouped[i-1].end=grouped[i+1].end;grouped.splice(i,2);i--;}}
+    // Smooth the per-frame predictions with a temporal model instead of splitting
+    // a sustained chord every four seconds. This reduces flicker, not pitch errors.
+    const stable=stabilizeChords(frames,hopSeconds);
+    const grouped=[];
+    for(const f of stable){
+      const last=grouped[grouped.length-1];
+      if(last && last.chord===f.chord){
+        const oldDuration=last.end-last.start, newDuration=f.end-f.start;
+        last.confidence=(last.confidence*oldDuration+f.confidence*newDuration)/(oldDuration+newDuration);
+        last.end=f.end;
+      } else grouped.push({...f});
+    }
     return grouped.filter(r=>r.end-r.start>.05);
+  }
+  function stabilizeChords(frames,hopSeconds){
+    if(!frames.length)return [];
+    // A 3-frame majority filter rejects isolated single-frame chord changes.
+    const filtered=frames.map((frame,i)=>{
+      if(i===0||i===frames.length-1)return {...frame};
+      const before=frames[i-1],after=frames[i+1];
+      if(before.chord===after.chord && frame.chord!==before.chord &&
+         frame.chord!=='N' && before.chord!=='N')
+        return {...frame,chord:before.chord,confidence:Math.min(frame.confidence,before.confidence,after.confidence)};
+      return {...frame};
+    });
+    // Merge brief runs into the most supported neighboring chord.
+    // Silence (N) is preserved instead of being guessed as harmony.
+    const minSeconds=Math.max(.45,Math.min(1.1,hopSeconds*2.2));
+    for(let pass=0;pass<2;pass++){
+      const runs=[];
+      for(let i=0;i<filtered.length;){let j=i+1;while(j<filtered.length&&filtered[j].chord===filtered[i].chord)j++;
+        runs.push({i,j,chord:filtered[i].chord,start:filtered[i].start,end:filtered[j-1].end});i=j;}
+      let changed=false;
+      for(let k=0;k<runs.length;k++){
+        const run=runs[k];if(run.chord==='N'||run.end-run.start>=minSeconds)continue;
+        const left=runs[k-1],right=runs[k+1];
+        const candidates=[left,right].filter(r=>r&&r.chord!=='N');
+        if(!candidates.length)continue;
+        const target=left&&right&&left.chord===right.chord?left:
+          candidates.reduce((best,r)=>!best||r.end-r.start>best.end-best.start?r:best,null);
+        for(let i=run.i;i<run.j;i++){filtered[i].chord=target.chord;filtered[i].confidence=Math.min(filtered[i].confidence,.65);}
+        changed=true;
+      }
+      if(!changed)break;
+    }
+    return filtered;
   }
   function fft(re,im){const n=re.length;for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}}for(let len=2;len<=n;len<<=1){const angle=-2*Math.PI/len,wr0=Math.cos(angle),wi0=Math.sin(angle);for(let i=0;i<n;i+=len){let wr=1,wi=0;for(let j=0;j<len/2;j++){const u=i+j,v=i+j+len/2,tr=wr*re[v]-wi*im[v],ti=wr*im[v]+wi*re[v];re[v]=re[u]-tr;im[v]=im[u]-ti;re[u]+=tr;im[u]+=ti;const nw=wr*wr0-wi*wi0;wi=wr*wi0+wi*wr0;wr=nw;}}}}
   function bestChord(chroma){let best={chord:'N',score:0};for(let root=0;root<12;root++)for(const q of ['maj','min']){const template=new Array(12).fill(0);template[root]=1;template[(root+(q==='maj'?4:3))%12]=.85;template[(root+7)%12]=.75;template[(root+2)%12]=.08;template[(root+9)%12]=.08;let dot=0,norm=0;for(let i=0;i<12;i++){dot+=chroma[i]*template[i];norm+=template[i]*template[i];}const score=dot/Math.sqrt(norm);if(score>best.score)best={chord:NOTES[root]+(q==='min'?'m':''),score};}return best;}
