@@ -13,3 +13,7 @@
 .structure-phrases{display:flex;flex-wrap:wrap;gap:8px}
 .structure-phrase{background:var(--surface,#202a35);color:inherit;border:1px solid var(--border,#3a4552);border-radius:8px;padding:8px 10px;text-align:left;cursor:pointer;font:inherit;font-size:.85rem}
 .structure-phrase:hover{outline:1px solid #a3e663}
+
+/* MP3 upload restoration: native file input remains visible and tappable on iPad */
+.file-drop input[type="file"]{display:block!important;visibility:visible!important;opacity:1!important;position:static!important;pointer-events:auto!important;width:100%;max-width:440px;min-height:44px;color:var(--text);padding:10px;border:1px solid #536174;border-radius:10px;background:#171f2b;cursor:pointer}
+.file-drop input[type="file"]::file-selector-button{background:var(--accent);border:0;border-radius:7px;padding:9px 12px;margin-right:12px;color:#14200b;font-weight:700;cursor:pointer}

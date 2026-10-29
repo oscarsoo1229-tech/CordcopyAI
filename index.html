@@ -10,7 +10,7 @@
   <meta name="description" content="음원에서 기타 코드를 추정하고 카포와 운지표를 확인하는 도구">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=upload-restore-3">
   <title>ChordLens — 기타 코드 분석</title>
 </head>
 <body>
@@ -23,7 +23,7 @@
 
     <section class="panel input-panel">
       <div class="section-heading"><span class="step">01</span><div><h2>곡 불러오기</h2><p>음원 파일은 이 기기에서 분석합니다.</p></div></div>
-      <label class="file-drop" for="audioFile"><span class="upload-icon">↑</span><strong>음원 파일 선택</strong><small>MP3 · WAV · M4A · AAC 등 브라우저가 지원하는 형식</small><input id="audioFile" type="file" accept="audio/*"></label>
+      <div class="file-drop"><span class="upload-icon">↑</span><strong>MP3 / 음원 파일 업로드</strong><small>MP3 · WAV · M4A · AAC · FLAC (브라우저 지원 형식)</small><input id="audioFile" type="file" accept=".mp3,.wav,.m4a,.aac,.flac,.ogg,audio/*" aria-label="MP3 및 음원 파일 선택"></div>
       <div id="fileStatus" class="status-line">선택된 음원 없음</div>
       <div class="divider-label"><span>또는 유튜브 링크</span></div>
       <div class="url-row"><input id="youtubeUrl" type="url" placeholder="https://www.youtube.com/watch?v=…" autocomplete="url"><button id="openYoutube" class="button secondary">영상 열기</button></div>
@@ -64,7 +64,7 @@
 
     <footer><p>ChordLens iOS PWA · 코드 추정은 자동 분석 결과이며 악보와 다를 수 있습니다.</p><p><a href="README.md">설치 및 사용 안내</a></p></footer>
   </main>
-  <script src="music-structure.js"></script>
-  <script src="app.js"></script>
+  <script src="music-structure.js?v=upload-restore-3"></script>
+  <script src="app.js?v=upload-restore-3"></script>
 </body>
 </html>
