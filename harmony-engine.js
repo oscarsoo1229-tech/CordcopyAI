@@ -1,4 +1,4 @@
-/* ChordLens harmonic analysis v5. Offline, browser-only; no external dependencies.
+/* ChordLens harmonic analysis v9.3 experimental. Offline, browser-only; no external dependencies.
    Log-frequency pitch-class weighting and whole-song Viterbi decoding.
    This is a DSP baseline, NOT a trained chord-recognition model. */
 (function(){
@@ -8,7 +8,7 @@
   const STATES=[];
   for(let root=0;root<12;root++)for(const [suffix,intervals] of TYPES){
     const weights=new Float64Array(12);for(const [i,step] of intervals.entries())weights[(root+step)%12]=i===0?1.2:1;
-    STATES.push({name:NAMES[root]+suffix,root,weights});
+    STATES.push({name:NAMES[root]+suffix,root,suffix,weights});
   }
   function features(re,im,sr){
     const n=re.length, chroma=new Float64Array(12),bass=new Float64Array(12);
@@ -39,7 +39,14 @@
       let dot=0,norm=0,nonChord=0;
       for(let p=0;p<12;p++){dot+=chroma[p]*w[p];norm+=w[p]*w[p];if(!w[p])nonChord+=chroma[p]*chroma[p];}
       const complexity=(state.name.endsWith('maj7')||state.name.endsWith('m7')||state.name.endsWith('sus4')||state.name.endsWith('7'))?.055:0;
-      out[s]=2.8*dot/Math.sqrt(norm)-.50*Math.sqrt(nonChord)+.22*bass[state.root]-complexity;
+      let extensionPenalty=0;
+      // Compare the characteristic tone against the competing major/minor third.
+      // Weak extension evidence should not turn a plain triad into a seventh/sus chord.
+      const pc=i=>chroma[(state.root+i)%12];
+      if(state.suffix==='sus4')extensionPenalty=.22*Math.max(0,pc(4)-pc(5))+.10*Math.max(0,pc(3)-pc(5));
+      if(state.suffix==='7'||state.suffix==='m7')extensionPenalty=.12*Math.max(0,.28-pc(10));
+      if(state.suffix==='maj7')extensionPenalty=.15*Math.max(0,.28-pc(11));
+      out[s]=2.8*dot/Math.sqrt(norm)-.50*Math.sqrt(nonChord)+.16*bass[state.root]-complexity-extensionPenalty;
     }
     // N is selected for near-silent frames separately; avoid spurious N on music.
     out[STATES.length]=-.25;
@@ -145,25 +152,39 @@
       if(boundaries.every(b=>Math.abs(b-c.t)>=gap))boundaries.push(c.t);
     }
     boundaries.sort((a,b)=>a-b);
-    // Recover missed changes inside very long regions; do not split solely due to length.
-    for(let iteration=0;iteration<3;iteration++){
+    // v9.3: re-evaluate *all* regions using duration-weighted harmonic evidence.
+    // This recovers missed changes without inserting artificial time-grid boundaries.
+    // A split is accepted only if two different harmonies explain the observations
+    // better than one harmony, with local chroma change as supporting evidence.
+    function bestSplit(a,b){
+      const length=b-a;
+      if(length<2*gap || length*hop<2.4)return null;
+      const whole=ranked(a,b);
+      const step=length>350?3:1;
+      let choice=null;
+      for(let t=a+gap;t<=b-gap;t+=step){
+        const left=ranked(a,t),right=ranked(t,b);
+        if(left.id<0||right.id<0||left.id===right.id)continue;
+        const lcount=validPrefix[t]-validPrefix[a],rcount=validPrefix[b]-validPrefix[t];
+        if(lcount<3||rcount<3)continue;
+        const gain=(left.score*lcount+right.score*rcount-whole.score*(lcount+rcount))*hop;
+        const local=difference(t,Math.max(2,Math.round(.55/hop)));
+        // Demand more evidence for short regions; allow strong harmonic evidence
+        // to recover a change even if transient novelty is weak.
+        const needed=.22+.10/Math.sqrt(Math.max(.5,length*hop));
+        if(gain<needed || (local<.012 && gain<needed*2.4))continue;
+        const quality=gain+.7*local;
+        if(!choice||quality>choice.quality)choice={t,quality};
+      }
+      return choice;
+    }
+    // Iteratively recover missing boundaries, but avoid pathological fragmentation.
+    for(let iteration=0;iteration<5;iteration++){
       let inserted=0;
       for(let i=0;i<boundaries.length-1;i++){
         const a=boundaries[i],b=boundaries[i+1];
-        if((b-a)*hop<7)continue;
-        const whole=ranked(a,b);
-        let choice=null;
-        for(let t=a+gap;t<=b-gap;t++){
-          const left=ranked(a,t),right=ranked(t,b);
-          if(left.id<0||right.id<0||left.id===right.id)continue;
-          // The split must explain both halves better than a single chord.
-          const gain=(left.score*(t-a)+right.score*(b-t)-whole.score*(b-a))*hop;
-          const local=novelty[t]||difference(t,radius);
-          if(gain<.30||local<Math.max(.025,threshold*.65))continue;
-          const quality=gain+local*2;
-          if(!choice||quality>choice.quality)choice={t,quality};
-        }
-        if(choice){boundaries.splice(i+1,0,choice.t);inserted++;i++;}
+        const split=bestSplit(a,b);
+        if(split){boundaries.splice(i+1,0,split.t);inserted++;i++;}
       }
       if(!inserted)break;
     }
