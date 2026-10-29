@@ -4,8 +4,8 @@
    This is a DSP baseline, NOT a trained chord-recognition model. */
 (function(){
   'use strict';
-  const VERSION='v11-logfilter-ab-1';
-  let featureMode='hybrid';
+  const VERSION='v11.1-chord-evidence-1';
+  let featureMode='legacy';
   let lastTrace=null;
   const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const TYPES=[['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],['m7',[0,3,7,10]],['maj7',[0,4,7,11]],['sus4',[0,5,7]]];
@@ -117,6 +117,47 @@
       if(state.suffix==='7'||state.suffix==='m7')extensionPenalty=.12*Math.max(0,.28-pc(10));
       if(state.suffix==='maj7')extensionPenalty=.15*Math.max(0,.28-pc(11));
       out[s]=2.8*dot/Math.sqrt(norm)-.50*Math.sqrt(nonChord)+.16*bass[state.root]-complexity-extensionPenalty;
+    }
+    // v11.1: compare extension candidates against the *same-root triad*.
+    // A four-note template can outscore a triad simply by picking up a melody
+    // note or a neighboring chord. Require both (a) a substantial 7th/4th
+    // relative to the chord tones and (b) a pitch-class contrast above the
+    // surrounding spectrum before permitting it to displace a plain triad.
+    // This is soft evidence gating, NOT forced major/minor classification.
+    const clamp01=x=>Math.min(1,Math.max(0,x));
+    function extensionEvidence(root, third, fifth, characteristic, excluded){
+      const pc=i=>Math.max(0,chroma[(root+i)%12]||0);
+      const toneStrength=(pc(0)+pc(third)+pc(fifth))/3;
+      const signal=pc(characteristic);
+      const background=[];
+      for(let i=0;i<12;i++)if(!excluded.includes(i))background.push(pc(i));
+      background.sort((a,b)=>a-b);
+      // Median of unrelated pitches: robust to one strong vocal pitch.
+      const noise=(background[3]+background[4])/2;
+      const relative=signal/(toneStrength+.0001);
+      const uniqueness=signal/(noise+.06);
+      return clamp01((relative-.28)/.55)*clamp01((uniqueness-1.05)/1.85);
+    }
+    for(let root=0;root<12;root++){
+      const start=root*TYPES.length;
+      const major=start,minor=start+1,dom7=start+2,min7=start+3,maj7=start+4,sus4=start+5;
+      // A seventh should outrank its triad only with distinctive seventh-tone
+      // evidence. The +0.22 ceiling still allows genuine seventh chords.
+      const domEvidence=extensionEvidence(root,4,7,10,[0,4,7,10]);
+      const minEvidence=extensionEvidence(root,3,7,10,[0,3,7,10]);
+      const majEvidence=extensionEvidence(root,4,7,11,[0,4,7,11]);
+      out[dom7]=Math.min(out[dom7],out[major]-.055+.28*domEvidence);
+      out[min7]=Math.min(out[min7],out[minor]-.055+.28*minEvidence);
+      out[maj7]=Math.min(out[maj7],out[major]-.055+.28*majEvidence);
+      // Suspended fourth replaces the third; strong major or minor thirds
+      // are contrary evidence, even when a vocal happens to sing the fourth.
+      const pc=i=>Math.max(0,chroma[(root+i)%12]||0);
+      const fourthEvidence=extensionEvidence(root,5,7,5,[0,5,7]);
+      const competingThird=Math.max(pc(3),pc(4));
+      const fourthDominance=clamp01((pc(5)-competingThird+.05)/.22);
+      const susEvidence=fourthEvidence*fourthDominance;
+      const parent=Math.max(out[major],out[minor]);
+      out[sus4]=Math.min(out[sus4],parent-.065+.29*susEvidence);
     }
     // N is selected for near-silent frames separately; avoid spurious N on music.
     out[STATES.length]=-.25;
