@@ -37,11 +37,14 @@
   });
   function validYouTubeUrl(raw){try{const u=new URL(raw.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be'].includes(u.hostname))return null;if(u.hostname.includes('youtu.be')&&!u.pathname.slice(1))return null;if(u.hostname.includes('youtube.com')&&!u.searchParams.get('v')&&!u.pathname.startsWith('/shorts/')&&!u.pathname.startsWith('/embed/'))return null;return u.href;}catch{return null;}}
 
-  $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));results=analyzeBuffer(audioBuffer,Number($('hopSize').value));
+  $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));results=analyzeBuffer(audioBuffer,beatSettings());
       if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: ${results.length}개 구간 · 코드명은 음향 특징으로 추정한 결과입니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
 
-  function analyzeBuffer(buffer,hopSeconds){
-    const size=4096, sr=buffer.sampleRate, ch0=buffer.getChannelData(0), ch1=buffer.numberOfChannels>1?buffer.getChannelData(1):null;
+  function analyzeBuffer(buffer,settings){
+    // Analysis windows follow musical subdivisions, not a user-selected second interval.
+    const beatSeconds = settings.beatDuration;
+    const hopSeconds = Math.max(.09, Math.min(.32, beatSeconds / 4));
+    const size=8192, sr=buffer.sampleRate, ch0=buffer.getChannelData(0), ch1=buffer.numberOfChannels>1?buffer.getChannelData(1):null;
     const mono=new Float32Array(ch0.length); for(let i=0;i<mono.length;i++)mono[i]=ch1?(ch0[i]+ch1[i])*.5:ch0[i];
     const hop=Math.max(1,Math.floor(sr*hopSeconds)); const frames=[];
     for(let start=0;start<mono.length;start+=hop){ if(start+size>mono.length)break; const chroma=new Float64Array(12), re=new Float64Array(size), im=new Float64Array(size); let energy=0;
@@ -54,7 +57,7 @@
     }
     // Smooth the per-frame predictions with a temporal model instead of splitting
     // a sustained chord every four seconds. This reduces flicker, not pitch errors.
-    const stable=stabilizeChords(frames,hopSeconds);
+    const stable=stabilizeChords(frames,hopSeconds,beatSeconds);
     const grouped=[];
     for(const f of stable){
       const last=grouped[grouped.length-1];
@@ -66,7 +69,7 @@
     }
     return grouped.filter(r=>r.end-r.start>.05);
   }
-  function stabilizeChords(frames,hopSeconds){
+  function stabilizeChords(frames,hopSeconds,beatSeconds){
     if(!frames.length)return [];
     // A 3-frame majority filter rejects isolated single-frame chord changes.
     const filtered=frames.map((frame,i)=>{
@@ -79,7 +82,7 @@
     });
     // Merge brief runs into the most supported neighboring chord.
     // Silence (N) is preserved instead of being guessed as harmony.
-    const minSeconds=Math.max(.45,Math.min(1.1,hopSeconds*2.2));
+    const minSeconds=Math.max(hopSeconds*2, Math.min(beatSeconds*.65, beatSeconds*1.25));
     for(let pass=0;pass<2;pass++){
       const runs=[];
       for(let i=0;i<filtered.length;){let j=i+1;while(j<filtered.length&&filtered[j].chord===filtered[i].chord)j++;
@@ -108,7 +111,7 @@
     if(!results.length){wrap.innerHTML='<div class="empty-state">분석 결과가 여기에 표시됩니다.</div>';renderScore();return;}
     results.forEach((r,i)=>{
       const b=document.createElement('button');b.className='chord-card'+(i===selectedIndex?' active':'');
-      b.innerHTML=`<strong>${escapeHtml(capoShape(r.chord))}</strong><small>실제 음: ${escapeHtml(r.chord)}</small><small>${fmtTime(r.start)}–${fmtTime(r.end)}</small>`;
+      b.innerHTML=`<strong>${escapeHtml(capoShape(r.chord))}</strong><small>실제 음: ${escapeHtml(r.chord)}</small><small>코드 변화 구간</small>`;
       b.addEventListener('click',()=>selectResult(i));wrap.appendChild(b);
     });renderScore();
   }
@@ -152,7 +155,10 @@
         const t=start+b*beatDuration;
         const r=chordAt(Math.min(duration-.001,t+beatDuration*.45));
         const button=document.createElement('button');button.type='button';button.className='measure-beat';button.dataset.time=t;
-        button.innerHTML=`<small>${b+1}</small><strong>${escapeHtml(capoShape(r?.chord||'N'))}</strong>`;
+        const prev = chordAt(Math.max(0,t-beatDuration*.55));
+        const chord = r?.chord || 'N';
+        const showChord = (m===0 && b===0) || chord !== (prev?.chord || 'N');
+        button.innerHTML=`<small>${b+1}</small><strong>${showChord ? escapeHtml(capoShape(chord)) : '—'}</strong>`;
         button.title=`${m+1}마디 ${b+1}박 · ${fmtTime(t)}`;
         button.addEventListener('click',()=>{player.currentTime=Math.min(t,duration);const i=results.indexOf(chordAt(t));if(i>=0)selectResult(i);updateBeatHighlight();});
         beatsRow.appendChild(button);
