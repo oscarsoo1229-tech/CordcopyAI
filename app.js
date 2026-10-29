@@ -38,12 +38,12 @@
   function validYouTubeUrl(raw){try{const u=new URL(raw.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be'].includes(u.hostname))return null;if(u.hostname.includes('youtu.be')&&!u.pathname.slice(1))return null;if(u.hostname.includes('youtube.com')&&!u.searchParams.get('v')&&!u.pathname.startsWith('/shorts/')&&!u.pathname.startsWith('/embed/'))return null;return u.href;}catch{return null;}}
 
   $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));if(!$('songBpm').dataset.userSet){const detected=estimateBpm(audioBuffer);if(Number.isFinite(detected)&&detected>=40&&detected<=240){$('songBpm').value=String(detected);$('beatStatus').textContent=`자동 추정 BPM ${detected} · 박자가 맞지 않으면 직접 조정하세요.`;}}results=analyzeBuffer(audioBuffer,beatSettings());
-      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: ${results.length}개 구간 · 코드명은 음향 특징으로 추정한 결과입니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
+      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: 음악적 코드 변화에 따라 ${results.length}개 구간을 추정했어요. 실제 코드 및 타이밍은 확인이 필요합니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
 
   function analyzeBuffer(buffer,settings){
     // Analysis windows follow musical subdivisions, not a user-selected second interval.
     const beatSeconds = settings.beatDuration;
-    const hopSeconds = Math.max(.09, Math.min(.32, beatSeconds / 4));
+    const hopSeconds = 0.115; // Internal acoustic sampling only; never a chord-segment duration.
     const size=8192, sr=buffer.sampleRate, ch0=buffer.getChannelData(0), ch1=buffer.numberOfChannels>1?buffer.getChannelData(1):null;
     const mono=new Float32Array(ch0.length); for(let i=0;i<mono.length;i++)mono[i]=ch1?(ch0[i]+ch1[i])*.5:ch0[i];
     const hop=Math.max(1,Math.floor(sr*hopSeconds)); const frames=[];
@@ -51,7 +51,9 @@
       for(let i=0;i<size;i++){const v=mono[start+i]*(0.5-0.5*Math.cos(2*Math.PI*i/(size-1)));re[i]=v;energy+=v*v;}
       if(energy/size<1e-7) {frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),chord:'N',confidence:0});continue;}
       fft(re,im);
-      for(let k=2;k<size/2;k++){const freq=k*sr/size;if(freq<55||freq>1500)continue;const mag=Math.hypot(re[k],im[k]);const midi=Math.round(69+12*Math.log2(freq/440));const pc=((midi%12)+12)%12;const weight=mag/Math.pow(freq,.35);chroma[pc]+=weight;}
+      for(let k=2;k<size/2;k++){const freq=k*sr/size;if(freq<55||freq>1500)continue;const mag=Math.hypot(re[k],im[k]);const midi=Math.round(69+12*Math.log2(freq/440));const pc=((midi%12)+12)%12;// Suppress broad spectral leakage and overweighted upper harmonics.
+        if(k>2){const local=Math.max(Math.hypot(re[k-1],im[k-1]),Math.hypot(re[k+1],im[k+1]));if(mag<local*1.12)continue;}
+        const weight=Math.sqrt(mag)/Math.pow(freq,.18);chroma[pc]+=weight;}
       const norm=Math.sqrt(chroma.reduce((a,b)=>a+b*b,0))||1;for(let i=0;i<12;i++)chroma[i]/=norm;
       const match=bestChord(chroma);frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),chord:match.chord,confidence:match.score});
     }
@@ -72,36 +74,41 @@
   }
   function stabilizeChords(frames,hopSeconds,beatSeconds){
     if(!frames.length)return [];
-    // A 3-frame majority filter rejects isolated single-frame chord changes.
-    const filtered=frames.map((frame,i)=>{
-      if(i===0||i===frames.length-1)return {...frame};
-      const before=frames[i-1],after=frames[i+1];
-      if(before.chord===after.chord && frame.chord!==before.chord &&
-         frame.chord!=='N' && before.chord!=='N')
-        return {...frame,chord:before.chord,confidence:Math.min(frame.confidence,before.confidence,after.confidence)};
-      return {...frame};
-    });
-    // Merge brief runs into the most supported neighboring chord.
-    // Silence (N) is preserved instead of being guessed as harmony.
-    const minSeconds=Math.max(hopSeconds*2, Math.min(beatSeconds*.65, beatSeconds*1.25));
+    // Hysteresis: a new harmony must persist and be more convincing than
+    // the current chord. No forced split by seconds or measure boundaries.
+    const output=frames.map(f=>({...f}));
+    const lookahead=Math.max(3,Math.round(Math.min(.48,beatSeconds*.7)/hopSeconds));
+    let current=output[0].chord;
+    for(let i=1;i<output.length;i++){
+      const proposed=output[i].chord;
+      if(proposed===current)continue;
+      if(proposed==='N'){
+        // Preserve sustained silence, ignore isolated quiet frames.
+        let count=0;for(let j=i;j<Math.min(output.length,i+lookahead);j++)if(output[j].chord==='N')count++;
+        if(count>=Math.ceil(lookahead*.75))current='N';else output[i].chord=current;
+        continue;
+      }
+      let support=0, total=0;
+      for(let j=i;j<Math.min(output.length,i+lookahead);j++){
+        if(output[j].chord===proposed)support+=Math.max(.1,output[j].confidence);
+        total+=Math.max(.1,output[j].confidence);
+      }
+      if(support/Math.max(.01,total)>=.68 && output[i].confidence>=.25){
+        current=proposed;
+      }else output[i].chord=current;
+    }
+    // Fill isolated short islands surrounded by the same harmony.
     for(let pass=0;pass<2;pass++){
       const runs=[];
-      for(let i=0;i<filtered.length;){let j=i+1;while(j<filtered.length&&filtered[j].chord===filtered[i].chord)j++;
-        runs.push({i,j,chord:filtered[i].chord,start:filtered[i].start,end:filtered[j-1].end});i=j;}
-      let changed=false;
-      for(let k=0;k<runs.length;k++){
-        const run=runs[k];if(run.chord==='N'||run.end-run.start>=minSeconds)continue;
-        const left=runs[k-1],right=runs[k+1];
-        const candidates=[left,right].filter(r=>r&&r.chord!=='N');
-        if(!candidates.length)continue;
-        const target=left&&right&&left.chord===right.chord?left:
-          candidates.reduce((best,r)=>!best||r.end-r.start>best.end-best.start?r:best,null);
-        for(let i=run.i;i<run.j;i++){filtered[i].chord=target.chord;filtered[i].confidence=Math.min(filtered[i].confidence,.65);}
-        changed=true;
+      for(let i=0;i<output.length;){let j=i+1;while(j<output.length&&output[j].chord===output[i].chord)j++;runs.push({i,j,chord:output[i].chord});i=j;}
+      for(let k=1;k<runs.length-1;k++){
+        const r=runs[k],l=runs[k-1],n=runs[k+1];
+        if(r.chord!=='N'&&l.chord===n.chord&&r.j-r.i<lookahead){
+          for(let i=r.i;i<r.j;i++)output[i].chord=l.chord;
+        }
       }
-      if(!changed)break;
     }
-    return filtered;
+    return output;
   }
   function fft(re,im){const n=re.length;for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}}for(let len=2;len<=n;len<<=1){const angle=-2*Math.PI/len,wr0=Math.cos(angle),wi0=Math.sin(angle);for(let i=0;i<n;i+=len){let wr=1,wi=0;for(let j=0;j<len/2;j++){const u=i+j,v=i+j+len/2,tr=wr*re[v]-wi*im[v],ti=wr*im[v]+wi*re[v];re[v]=re[u]-tr;im[v]=im[u]-ti;re[u]+=tr;im[u]+=ti;const nw=wr*wr0-wi*wi0;wi=wr*wi0+wi*wr0;wr=nw;}}}}
   function bestChord(chroma){let best={chord:'N',score:0};for(let root=0;root<12;root++)for(const q of ['maj','min']){const template=new Array(12).fill(0);template[root]=1;template[(root+(q==='maj'?4:3))%12]=.85;template[(root+7)%12]=.75;template[(root+2)%12]=.08;template[(root+9)%12]=.08;let dot=0,norm=0;for(let i=0;i<12;i++){dot+=chroma[i]*template[i];norm+=template[i]*template[i];}const score=dot/Math.sqrt(norm);if(score>best.score)best={chord:NOTES[root]+(q==='min'?'m':''),score};}return best;}
