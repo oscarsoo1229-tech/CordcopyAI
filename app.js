@@ -47,19 +47,18 @@
     const size=8192, sr=buffer.sampleRate, ch0=buffer.getChannelData(0), ch1=buffer.numberOfChannels>1?buffer.getChannelData(1):null;
     const mono=new Float32Array(ch0.length); for(let i=0;i<mono.length;i++)mono[i]=ch1?(ch0[i]+ch1[i])*.5:ch0[i];
     const hop=Math.max(1,Math.floor(sr*hopSeconds)); const frames=[];
-    for(let start=0;start<mono.length;start+=hop){ if(start+size>mono.length)break; const chroma=new Float64Array(12), re=new Float64Array(size), im=new Float64Array(size); let energy=0;
+    for(let start=0;start<mono.length;start+=hop){ if(start+size>mono.length)break; const re=new Float64Array(size), im=new Float64Array(size); let energy=0;
       for(let i=0;i<size;i++){const v=mono[start+i]*(0.5-0.5*Math.cos(2*Math.PI*i/(size-1)));re[i]=v;energy+=v*v;}
-      if(energy/size<1e-7) {frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),chord:'N',confidence:0});continue;}
+      if(energy/size<1e-7) {frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),silent:true});continue;}
       fft(re,im);
-      for(let k=2;k<size/2;k++){const freq=k*sr/size;if(freq<55||freq>1500)continue;const mag=Math.hypot(re[k],im[k]);const midi=Math.round(69+12*Math.log2(freq/440));const pc=((midi%12)+12)%12;// Suppress broad spectral leakage and overweighted upper harmonics.
-        if(k>2){const local=Math.max(Math.hypot(re[k-1],im[k-1]),Math.hypot(re[k+1],im[k+1]));if(mag<local*1.12)continue;}
-        const weight=Math.sqrt(mag)/Math.pow(freq,.18);chroma[pc]+=weight;}
-      const norm=Math.sqrt(chroma.reduce((a,b)=>a+b*b,0))||1;for(let i=0;i<12;i++)chroma[i]/=norm;
-      const match=bestChord(chroma);frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),chord:match.chord,confidence:match.score});
+      const harmonic=window.ChordLensHarmony;
+      if(!harmonic)throw new Error('화성 분석 모듈을 불러오지 못했습니다. 새로고침해 주세요.');
+      const {chroma,bass}=harmonic.features(re,im,sr);
+      frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),scores:harmonic.scores(chroma,bass),silent:false});
     }
     // Smooth the per-frame predictions with a temporal model instead of splitting
     // a sustained chord every four seconds. This reduces flicker, not pitch errors.
-    const stable=stabilizeChords(frames,hopSeconds,beatSeconds);
+    const stable=window.ChordLensHarmony.decode(frames,beatSeconds);
     if(stable.length){stable[0].start=0;stable[stable.length-1].end=buffer.duration;}
     const grouped=[];
     for(const f of stable){
