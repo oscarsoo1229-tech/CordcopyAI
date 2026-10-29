@@ -4,7 +4,8 @@
    This is a DSP baseline, NOT a trained chord-recognition model. */
 (function(){
   'use strict';
-  const VERSION='v10-local-window-1';
+  const VERSION='v11-logfilter-ab-1';
+  let featureMode='hybrid';
   let lastTrace=null;
   const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const TYPES=[['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],['m7',[0,3,7,10]],['maj7',[0,4,7,11]],['sus4',[0,5,7]]];
@@ -34,6 +35,72 @@
     }
     for(const arr of [chroma,bass]){const norm=Math.hypot(...arr)||1;for(let i=0;i<12;i++)arr[i]/=norm;}
     return {chroma,bass};
+  }
+  // Log-frequency triangular pitch filterbank over a single FFT (CQT-inspired,
+  // NOT a true constant-Q transform). Spectral whitening suppresses broad-band
+  // percussion; harmonic summation improves fundamental pitch evidence.
+  function logFilterFeatures(re,im,sr){
+    const n=re.length,half=n>>1,binHz=sr/n;
+    const power=new Float64Array(half),smooth=new Float64Array(half);
+    for(let k=1;k<half;k++)power[k]=Math.hypot(re[k],im[k]);
+    // Local spectral background; avoids per-frame O(N^2) smoothing.
+    const prefix=new Float64Array(half+1);
+    for(let k=0;k<half;k++)prefix[k+1]=prefix[k]+power[k];
+    for(let k=1;k<half;k++){
+      const r=Math.max(3,Math.round(k*.065));
+      const a=Math.max(1,k-r),b=Math.min(half,k+r+1);
+      smooth[k]=(prefix[b]-prefix[a])/(b-a);
+    }
+    const whitened=new Float64Array(half);
+    for(let k=1;k<half;k++)whitened[k]=Math.max(0,power[k]-.72*smooth[k]);
+    function band(center){
+      if(center<binHz*2||center>sr*.48)return 0;
+      const width=Math.max(binHz*1.3,center*(Math.pow(2,1/24)-1));
+      const lo=Math.max(1,Math.floor((center-width)/binHz));
+      const hi=Math.min(half-1,Math.ceil((center+width)/binHz));
+      let sum=0,weights=0;
+      for(let k=lo;k<=hi;k++){
+        const w=Math.max(0,1-Math.abs(k*binHz-center)/width);
+        sum+=w*whitened[k];weights+=w;
+      }
+      return weights?sum/weights:0;
+    }
+    const chroma=new Float64Array(12),bass=new Float64Array(12);
+    // MIDI 36 (C2) through 95 (B6); emphasize reliable lower harmonics.
+    for(let midi=36;midi<=95;midi++){
+      const fundamental=440*Math.pow(2,(midi-69)/12);
+      const p=((midi%12)+12)%12;
+      const fundamentalEnergy=band(fundamental);
+      const harmonicEnergy=.25*band(fundamental*2)+.10*band(fundamental*3);
+      const energy=Math.sqrt(Math.max(0,fundamentalEnergy+.5*harmonicEnergy));
+      chroma[p]+=energy*(midi<=72?1:.72);
+      if(midi<=59)bass[p]+=Math.sqrt(Math.max(0,fundamentalEnergy))*(midi<=48?1:.65);
+    }
+    for(const arr of [chroma,bass]){
+      const norm=Math.hypot(...arr)||1;
+      for(let i=0;i<12;i++)arr[i]/=norm;
+    }
+    return {chroma,bass};
+  }
+  function selectedFeatures(re,im,sr){
+    if(featureMode==='legacy')return features(re,im,sr);
+    const modern=logFilterFeatures(re,im,sr);
+    if(featureMode==='logfilter')return modern;
+    const old=features(re,im,sr);
+    const chroma=new Float64Array(12),bass=new Float64Array(12);
+    for(let i=0;i<12;i++){
+      chroma[i]=.7*modern.chroma[i]+.3*old.chroma[i];
+      bass[i]=.65*modern.bass[i]+.35*old.bass[i];
+    }
+    for(const arr of [chroma,bass]){
+      const norm=Math.hypot(...arr)||1;
+      for(let i=0;i<12;i++)arr[i]/=norm;
+    }
+    return {chroma,bass};
+  }
+  function setFeatureMode(mode){
+    if(!['legacy','hybrid','logfilter'].includes(mode))throw new Error('Unknown feature mode');
+    featureMode=mode;
   }
   function scores(chroma,bass){
     const out=new Float64Array(STATES.length+1);
@@ -309,7 +376,7 @@
       }else finalSegments.push({...region});
     }
     const longest=finalSegments.reduce((best,r)=>Math.max(best,r.end-r.start),0);
-    lastTrace={version:VERSION,frameCount:n,noveltyMedian:median,noveltyThreshold:threshold,
+    lastTrace={version:VERSION,featureMode,frameCount:n,noveltyMedian:median,noveltyThreshold:threshold,
       candidatePeaks:candidates.length,initialBoundaries:initialBoundaryCount,
       recoveryAttempts,recoveryAccepted,rejection,evaluatedSplits,bestObservedGain,bestObservedChange,finalBoundaries:boundaries.length,
       decodedRegions:preMergeRegions,mergedBeforeRescue,mergedSegments:finalSegments.length,postMergeAttempts,postMergeAccepted,postMergeRejected,localWindowCandidates,localWindowAccepted,localRejections,longestSeconds:longest,
@@ -337,7 +404,7 @@
     for(let k=0;k<12;k++){dot+=left[k]*right[k];a+=left[k]*left[k];b+=right[k]*right[k];}
     return Math.max(0,1-dot/(Math.sqrt(a*b)||1));
   }
-  window.ChordLensHarmony={version:VERSION,features,scores,decode,segment,topCandidates,localChange,getLastTrace:()=>lastTrace?{...lastTrace}:null};
+  window.ChordLensHarmony={version:VERSION,features:selectedFeatures,setFeatureMode,getFeatureMode:()=>featureMode,scores,decode,segment,topCandidates,localChange,getLastTrace:()=>lastTrace?{...lastTrace}:null};
 })();
 
 

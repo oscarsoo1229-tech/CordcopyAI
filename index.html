@@ -10,7 +10,7 @@
   <meta name="description" content="음원에서 기타 코드를 추정하고 카포와 운지표를 확인하는 도구">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=app-v10-local-window-1">
+  <link rel="stylesheet" href="styles.css?v=app-v11-logfilter-ab-1">
   <title>ChordLens — 기타 코드 분석</title>
 </head>
 <body>
@@ -38,6 +38,7 @@
         
         <label>카포 위치<select id="capoFret"><option value="0">카포 없음</option><option value="1">1프렛</option><option value="2">2프렛</option><option value="3">3프렛</option><option value="4">4프렛</option><option value="5">5프렛</option><option value="6">6프렛</option><option value="7">7프렛</option><option value="8">8프렛</option><option value="9">9프렛</option><option value="10">10프렛</option><option value="11">11프렛</option><option value="12">12프렛</option></select></label>
       </div>
+      <div class="settings-grid"><label>화성 분석 방식<select id="featureMode"><option value="hybrid">v11 하이브리드 (실험)</option><option value="legacy">v10 기존 분석 (비교용)</option><option value="logfilter">로그 주파수 필터만 (실험)</option></select></label></div>
       <div class="button-row"><button id="recommendCapo" class="button secondary">카포 추천</button><button id="analyzeFile" class="button primary" disabled>코드 분석 시작</button></div>
       <div id="analysisStatus" class="status-line" aria-live="polite">음원을 선택하면 분석을 시작할 수 있습니다.</div>
     </section>
@@ -64,7 +65,7 @@
 
     <footer><p>ChordLens iOS PWA · 코드 추정은 자동 분석 결과이며 악보와 다를 수 있습니다.</p><p><a href="README.md">설치 및 사용 안내</a></p></footer>
   </main>
-  <script src="chord-engine.js?v=engine-v10-local-window-1"></script>
-  <script src="app.js?v=app-v10-local-window-1"></script>
+  <script src="chord-engine.js?v=engine-v11-logfilter-ab-1"></script>
+  <script src="app.js?v=app-v11-logfilter-ab-1"></script>
 </body>
 </html>
