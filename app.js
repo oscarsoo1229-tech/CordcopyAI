@@ -268,21 +268,52 @@
     const url=URL.createObjectURL(blob),a=document.createElement('a');
     a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
   }
-  $('exportDiagnostics').addEventListener('click',()=>{
-    if(!diagnosticFrames.length||!window.ChordLensHarmony)return;
-    const noteNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-    const headers=['time_seconds','window_end_seconds','silent','output_chord','output_segment_start','output_segment_end','chroma_change','top_chord','top_score','second_chord','second_score','score_margin',...noteNames.map(n=>'chroma_'+n),...noteNames.map(n=>'bass_'+n)];
-    const harmonic=window.ChordLensHarmony;
-    const rows=diagnosticFrames.map((f,i)=>{
-      const candidates=typeof harmonic.topCandidates==='function'?harmonic.topCandidates(f.scores,2):[];
-      const novelty=typeof harmonic.localChange==='function'?harmonic.localChange(diagnosticFrames,i,4):0;
-      const midpoint=(f.start+f.end)/2;
-      const region=results.find(r=>midpoint>=r.start&&midpoint<r.end)||results[results.length-1];
+  $('exportDiagnostics').addEventListener('click',async()=>{
+    const btn=$('exportDiagnostics');
+    if(!diagnosticFrames.length || !results.length){
+      setStatus('analysisStatus','진단할 데이터가 없습니다. 음원을 먼저 분석해 주세요.',true);return;
+    }
+    if(!window.ChordLensHarmony){
+      setStatus('analysisStatus','진단 모듈이 로드되지 않았습니다. 새로고침 후 다시 시도해 주세요.',true);return;
+    }
+    btn.disabled=true;
+    const originalText=btn.textContent;
+    try{
+      const harmonic=window.ChordLensHarmony;
+      const noteNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+      const headers=['time_seconds','window_end_seconds','silent','output_chord','output_segment_start','output_segment_end','chroma_change','top_chord','top_score','second_chord','second_score','score_margin',...noteNames.map(n=>'chroma_'+n),...noteNames.map(n=>'bass_'+n)];
+      const escape=value=>'"'+String(value??'').replace(/"/g,'""')+'"';
+      const parts=['\ufeff',headers.map(escape).join(',')+'\r\n'];
       const numeric=x=>Number.isFinite(x)?x.toFixed(5):'';
-      return [numeric(midpoint),numeric(f.end),f.silent?1:0,region?.chord||'',numeric(region?.start),numeric(region?.end),numeric(novelty),candidates[0]?.name||'',numeric(candidates[0]?.score),candidates[1]?.name||'',numeric(candidates[1]?.score),numeric(candidates.length>1?candidates[0].score-candidates[1].score:NaN),...Array.from({length:12},(_,k)=>numeric(f.chroma?.[k])),...Array.from({length:12},(_,k)=>numeric(f.bass?.[k]))];
-    });
-    saveCsv('chordlens-diagnostics-v9-4.csv',headers,rows);
-    setStatus('analysisStatus','진단 CSV를 저장했어요. 코드 결과 CSV와 함께 보내면 긴 구간의 원인을 분석할 수 있습니다.');
+      let regionIndex=0;
+      const batchSize=100;
+      for(let base=0;base<diagnosticFrames.length;base+=batchSize){
+        const lines=[];
+        for(let i=base;i<Math.min(base+batchSize,diagnosticFrames.length);i++){
+          const f=diagnosticFrames[i];
+          const midpoint=(f.start+f.end)/2;
+          while(regionIndex<results.length-1 && midpoint>=results[regionIndex].end)regionIndex++;
+          const region=results[regionIndex];
+          const candidates=typeof harmonic.topCandidates==='function'?harmonic.topCandidates(f.scores,2):[];
+          const novelty=typeof harmonic.localChange==='function'?harmonic.localChange(diagnosticFrames,i,4):0;
+          const row=[numeric(midpoint),numeric(f.end),f.silent?1:0,region?.chord||'',numeric(region?.start),numeric(region?.end),numeric(novelty),candidates[0]?.name||'',numeric(candidates[0]?.score),candidates[1]?.name||'',numeric(candidates[1]?.score),numeric(candidates.length>1?candidates[0].score-candidates[1].score:NaN),...Array.from({length:12},(_,k)=>numeric(f.chroma?.[k])),...Array.from({length:12},(_,k)=>numeric(f.bass?.[k]))];
+          lines.push(row.map(escape).join(','));
+        }
+        parts.push(lines.join('\r\n')+'\r\n');
+        const percent=Math.min(100,Math.round((base+batchSize)/diagnosticFrames.length*100));
+        btn.textContent=`진단 CSV 생성 ${percent}%`;
+        if(base%500===0)await new Promise(resolve=>setTimeout(resolve,0));
+      }
+      const blob=new Blob(parts,{type:'text/csv;charset=utf-8'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download='chordlens-diagnostics-v9-4-1.csv';
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),30000);
+      setStatus('analysisStatus',`진단 CSV 생성 완료 (${diagnosticFrames.length}프레임). 브라우저 다운로드 목록을 확인해 주세요.`);
+    }catch(err){
+      console.error('Diagnostics export failed:',err);
+      setStatus('analysisStatus',`진단 CSV 저장 오류: ${err.message||String(err)}`,true);
+    }finally{btn.disabled=false;btn.textContent=originalText;}
   });
   $('exportCsv').addEventListener('click',()=>{if(!results.length)return;const rows=[['start_seconds','end_seconds','chord','confidence','capo_fret','capo_shape'],...results.map(r=>[r.start.toFixed(2),r.end.toFixed(2),r.chord,r.confidence.toFixed(3),$('capoFret').value,transposeChord(r.chord,-Number($('capoFret').value))])];const csv='\ufeff'+rows.map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='chordlens-chords.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);});
   if('serviceWorker' in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('Service worker registration failed',e)));}
