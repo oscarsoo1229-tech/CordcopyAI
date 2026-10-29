@@ -347,7 +347,7 @@
       const archive=zipArchive(entries);
       const base=(sourceName||'chordlens').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9가-힣_-]+/g,'_').slice(0,55)||'chordlens';
       downloadBlob(archive,`${base}_analysis.zip`);
-      setStatus('analysisStatus',`전체 결과 ZIP 저장 완료: chords.csv + diagnostics.csv${extras.length?' + 정답 비교 CSV 3개':''}`);
+      setStatus('analysisStatus',`전체 결과 ZIP 저장 완료: chords.csv + diagnostics.csv${extras.length?' + 정답 비교 CSV 4개':''}`);
     }catch(err){console.error('Bundle export failed',err);setStatus('analysisStatus',`전체 결과 저장 오류: ${err.message||String(err)}`,true);}
     finally{btn.disabled=false;btn.textContent=original;}
   });

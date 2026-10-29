@@ -27,3 +27,8 @@
 .reference-detail{width:100%;overflow-x:auto}.reference-detail table{width:100%;border-collapse:collapse;min-width:360px;font-size:11px}.reference-detail th,.reference-detail td{border-bottom:1px solid #354154;text-align:left;padding:9px 5px}.reference-detail th{color:var(--muted)}
 @media(max-width:420px){.reference-controls{grid-template-columns:1fr}.reference-file-label{width:100%;flex-wrap:wrap}.reference-file-label input{margin-left:0;margin-top:6px}}
 @media print{.reference-panel{display:none!important}}
+
+/* v11.3 reference alignment and mismatch playback */
+.reference-sync{border:1px solid #364557;border-radius:12px;padding:12px;margin:12px 0;background:#0d141e}
+.reference-sync>strong{font-size:13px}.reference-sync-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.reference-sync-grid label{display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--muted)}.reference-subheading{font-size:13px;margin-top:18px}
+@media(max-width:420px){.reference-sync-grid{grid-template-columns:1fr}}

@@ -1,4 +1,4 @@
-/* ChordLens v11.2 — opt-in reference evaluation. Never affects audio analysis. */
+/* ChordLens v11.3 — opt-in reference evaluation. Never affects audio analysis. */
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -53,7 +53,7 @@
   function compile(rows,{mode,capo=0,bpm=120,beats=4,offset=0,duration=Infinity}){
     if(!Number.isFinite(capo)||capo<0||capo>12||!Number.isInteger(capo))throw Error('악보 카포는 0~12프렛 사이로 설정해 주세요.');
     if(mode==='bars'&&(!Number.isFinite(bpm)||bpm<=0||!Number.isFinite(beats)||beats<=0||!Number.isFinite(offset)||offset<0))throw Error('BPM·박자·첫 마디 시작 시간을 확인해 주세요.');
-    const barLen=60/bpm*beats;
+    const barLen=60/bpm*beats*(beats===6?0.5:1);
     const computed=rows.map(r=>{
       const start=mode==='bars'?offset+(r.start-1)*barLen:r.start;
       const end=mode==='bars'?offset+(r.end-1)*barLen:r.end;
@@ -72,11 +72,18 @@
     for(const p of pred)if(!Number.isFinite(p.start)||!Number.isFinite(p.end)||p.end<=p.start)throw Error('분석 결과 시간 데이터가 올바르지 않아요.');
     let total=0,exact=0,rootHit=0,qualityHit=0;
     const details=[];
+    const mismatches=[];
     const EPS=1e-8;
     for(let ri=0;ri<ref.length;ri++){
       const r=ref[ri];let seconds=0,ex=0,rh=0,qh=0;const distribution=new Map();
       for(const p of pred){
         const dt=Math.max(0,Math.min(p.end,r.end)-Math.max(p.start,r.start));if(dt<=EPS)continue;
+        if(p.chord.label!==r.chord.label){
+          const start=Math.max(p.start,r.start),end=Math.min(p.end,r.end);
+          const prev=mismatches[mismatches.length-1];
+          if(prev&&prev.reference===r.chord.label&&prev.predicted===p.chord.label&&Math.abs(prev.end-start)<1e-6)prev.end=end;
+          else mismatches.push({start,end,reference:r.chord.label,predicted:p.chord.label});
+        }
         seconds+=dt;
         if(p.chord.label===r.chord.label)ex+=dt;
         if(p.chord.root===r.chord.root)rh+=dt;
@@ -95,7 +102,7 @@
     const boundaryErrors=targets.map(t=>predBounds.length?Math.min(...predBounds.map(p=>Math.abs(p-t))):Infinity);
     const matched=boundaryErrors.filter(e=>e<=boundaryTolerance);
     const referenceDuration=ref.reduce((n,r)=>n+r.end-r.start,0);
-    return {seconds:total,referenceSeconds:referenceDuration,coverage:total/referenceDuration*100,exactPercent:exact/total*100,rootPercent:rootHit/total*100,triadPercent:qualityHit/total*100,details,boundaries:targets.length,boundaryMatched:matched.length,boundaryTolerance,boundaryMAE:matched.length?matched.reduce((s,x)=>s+x,0)/matched.length:null};
+    return {seconds:total,referenceSeconds:referenceDuration,coverage:total/referenceDuration*100,exactPercent:exact/total*100,rootPercent:rootHit/total*100,triadPercent:qualityHit/total*100,details,mismatches,boundaries:targets.length,boundaryMatched:matched.length,boundaryTolerance,boundaryMAE:matched.length?matched.reduce((s,x)=>s+x,0)/matched.length:null};
   }
   function toCsv(rows){return '\uFEFF'+rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');}
   return {chordInfo,transpose,parseRows,compile,evaluate,toCsv};
