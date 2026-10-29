@@ -234,8 +234,8 @@
   // Read-only diagnostics: does not alter the segmentation or decoding model.
   function topCandidates(frameScores,count=2){
     if(!frameScores)return [];
-    return Array.from(frameScores,(score,i)=>({name:STATES[i].name,score}))
-      .filter(x=>Number.isFinite(x.score)).sort((a,b)=>b.score-a.score).slice(0,count);
+    return Array.from(frameScores,(score,i)=>({name:i===STATES.length?'N':STATES[i]?.name,score}))
+      .filter(x=>x.name && Number.isFinite(x.score)).sort((a,b)=>b.score-a.score).slice(0,count);
   }
   function localChange(frames,index,radius=4){
     const average=(a,b)=>{
