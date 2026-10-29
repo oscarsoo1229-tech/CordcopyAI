@@ -1,4 +1,4 @@
-/* ChordLens v11.3 — score comparison UI, isolated from the analysis engine. */
+/* ChordLens v11.4 — score comparison UI, isolated from the analysis engine. */
 (() => {
   'use strict';
   const $ = id => document.getElementById(id), ref=window.ChordLensReference;
@@ -18,7 +18,8 @@
       const data=ref.evaluate(bridge.getSegments(),compiled);
       if(s.mode==='bars'&&!$('referenceAligned').checked)throw Error('먼저 박자와 첫 마디 시작을 실제 음원에 맞춘 후 동기화 확인을 체크해 주세요.');
       const revision=bridge.getRevision();
-      last={data,compiled,source:bridge.getSourceName(),revision};
+      const diagnostic=ref.diagnoseBoundaries(bridge.getSegments(),compiled);
+      last={data,compiled,diagnostic,source:bridge.getSourceName(),revision};
       const pct=n=>n.toFixed(1)+'%';
       $('referenceResults').hidden=false;
       $('referenceMetrics').innerHTML=`<div><small>근음 일치율</small><strong>${pct(data.rootPercent)}</strong></div><div><small>기본 코드 일치율</small><strong>${pct(data.triadPercent)}</strong></div><div><small>전체 코드 일치율</small><strong>${pct(data.exactPercent)}</strong></div><div><small>검증 구간</small><strong>${data.seconds.toFixed(1)}초</strong></div>`;
@@ -26,6 +27,10 @@
       status(`정답 구간 ${compiled.length}개 평가 · 정답 구간의 ${data.coverage.toFixed(1)}%가 분석 결과와 겹침${boundary}.`);
       const escape=s=>String(s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       $('referenceMismatch').innerHTML=data.mismatches.length?`<table><thead><tr><th>시간(초)</th><th>정답</th><th>예측</th><th>이동</th></tr></thead><tbody>${data.mismatches.map(r=>`<tr><td>${r.start.toFixed(2)}–${r.end.toFixed(2)}</td><td>${escape(r.reference)}</td><td>${escape(r.predicted)}</td><td><button type="button" class="button tiny secondary" data-seek="${r.start.toFixed(3)}">듣기</button></td></tr>`).join('')}</tbody></table>`:'<p class="help">평가 범위에서 코드가 일치하지 않은 구간이 없습니다.</p>';
+      const diag=$('referenceBoundaryDiagnosis');
+      const d=diagnostic;
+      const signed=n=>(n>=0?'+':'')+n.toFixed(3)+'초';
+      diag.innerHTML=`<h3 class="reference-subheading">코드 변경 시점 진단 (v11.4)</h3><p class="help">동일한 이전→다음 코드 전환만 매칭합니다. ${d.matched}/${d.total}개 매칭. ${d.medianDelay===null?'매칭된 전환이 없어 시간 지연을 추정할 수 없습니다.':`변경 시점 차이 중앙값 ${signed(d.medianDelay)}, 편차 중앙값 ${d.mad.toFixed(3)}초.`} ${d.consistent?'여러 변경점에서 비슷한 차이가 발견됐습니다. 악보 동기화 또는 분석 지연 가능성을 확인하세요. 자동 보정하지 않습니다.':'변경점이 적거나 차이가 일정하지 않아 일괄 시간 보정은 권장하지 않습니다.'}</p><table><thead><tr><th>정답 변경(초)</th><th>코드 전환</th><th>예측 변경(초)</th><th>차이</th></tr></thead><tbody>${d.changes.map(c=>`<tr><td>${c.referenceTime.toFixed(3)}</td><td>${escape(c.from)} → ${escape(c.to)}</td><td>${c.predictedTime===null?'—':c.predictedTime.toFixed(3)}</td><td>${c.delta===null?'—':signed(c.delta)}</td></tr>`).join('')}</tbody></table>`;
       $('referenceDetail').innerHTML=`<table><thead><tr><th>시간(초)</th><th>정답</th><th>주요 추정</th><th>정확한 코드 일치</th></tr></thead><tbody>${data.details.map(r=>`<tr><td>${r.start.toFixed(1)}–${r.end.toFixed(1)}</td><td>${escape(r.reference)}</td><td>${escape(r.predicted)}</td><td>${r.exactPercent===null?'—':r.exactPercent.toFixed(1)+'%'}</td></tr>`).join('')}</tbody></table>`;
       $('exportReferenceEvaluation').disabled=false;
     }catch(e){last=null;$('referenceResults').hidden=true;$('exportReferenceEvaluation').disabled=true;status('평가할 수 없음: '+(e.message||e),true);}
@@ -86,18 +91,19 @@
   function exportFiles(){
     const bridge=window.ChordLensEvaluationBridge;
     if(!last||!bridge||last.revision!==bridge.getRevision())return [];
-    const {data,compiled}=last;
+    const {data,compiled,diagnostic}=last;
     const refCsv=ref.toCsv([['start_seconds','end_seconds','chord','written_chord'],...compiled.map(r=>[r.start.toFixed(3),r.end.toFixed(3),r.chord,r.written])]);
     const detCsv=ref.toCsv([['start_seconds','end_seconds','reference','written','dominant_prediction','covered_seconds','exact_seconds','root_seconds','basic_chord_seconds'],...data.details.map(r=>[r.start.toFixed(3),r.end.toFixed(3),r.reference,r.written,r.predicted,r.covered.toFixed(3),r.exactSeconds.toFixed(3),r.rootSeconds.toFixed(3),r.triadSeconds.toFixed(3)])]);
     const mismatchCsv=ref.toCsv([['start_seconds','end_seconds','reference','predicted','duration_seconds'],...data.mismatches.map(r=>[r.start.toFixed(3),r.end.toFixed(3),r.reference,r.predicted,(r.end-r.start).toFixed(3)])]);
     const sumCsv=ref.toCsv([['metric','value'],['source',last.source],['reference_seconds',data.referenceSeconds.toFixed(3)],['evaluated_seconds',data.seconds.toFixed(3)],['coverage_percent',data.coverage.toFixed(2)],['root_accuracy_percent',data.rootPercent.toFixed(2)],['basic_chord_accuracy_percent',data.triadPercent.toFixed(2)],['exact_accuracy_percent',data.exactPercent.toFixed(2)],['boundary_tolerance_seconds',data.boundaryTolerance],['boundary_matches',data.boundaryMatched],['reference_boundaries',data.boundaries],['matched_boundary_mae_seconds',data.boundaryMAE===null?'':data.boundaryMAE.toFixed(3)]]);
-    return [{name:'reference.csv',blob:new Blob([refCsv],{type:'text/csv;charset=utf-8'})},{name:'evaluation_details.csv',blob:new Blob([detCsv],{type:'text/csv;charset=utf-8'})},{name:'evaluation_summary.csv',blob:new Blob([sumCsv],{type:'text/csv;charset=utf-8'})},{name:'evaluation_mismatches.csv',blob:new Blob([mismatchCsv],{type:'text/csv;charset=utf-8'})}];
+    const boundaryCsv=ref.toCsv([['reference_seconds','from_chord','to_chord','predicted_seconds','signed_delay_seconds'],...diagnostic.changes.map(c=>[c.referenceTime.toFixed(3),c.from,c.to,c.predictedTime===null?'':c.predictedTime.toFixed(3),c.delta===null?'':c.delta.toFixed(3)])]);
+    return [{name:'boundary_diagnostics.csv',blob:new Blob([boundaryCsv],{type:'text/csv;charset=utf-8'})},{name:'reference.csv',blob:new Blob([refCsv],{type:'text/csv;charset=utf-8'})},{name:'evaluation_details.csv',blob:new Blob([detCsv],{type:'text/csv;charset=utf-8'})},{name:'evaluation_summary.csv',blob:new Blob([sumCsv],{type:'text/csv;charset=utf-8'})},{name:'evaluation_mismatches.csv',blob:new Blob([mismatchCsv],{type:'text/csv;charset=utf-8'})}];
   }
   $('evaluateReference').addEventListener('click',evaluateClick);
   $('exportReferenceEvaluation').addEventListener('click',()=>{
     const files=exportFiles();if(!files.length){status('음원 재분석 후 정답 비교를 다시 실행해 주세요.',true);return;}
     files.forEach(f=>download(f.blob,f.name));
-    status('정답 비교 CSV 4개 저장을 요청했어요. 모바일에서 여러 파일 저장이 차단되면 전체 결과 ZIP 저장을 이용하세요.');
+    status('정답 비교 CSV 5개 저장을 요청했어요. 모바일에서 여러 파일 저장이 차단되면 전체 결과 ZIP 저장을 이용하세요.');
   });
   const invalidate=()=>{last=null;$('exportReferenceEvaluation').disabled=true;$('referenceResults').hidden=true;};
   ['referenceCapo','referenceText','referenceMode','songBpm','timeSignature','beatOffset','referenceAligned'].forEach(id=>{

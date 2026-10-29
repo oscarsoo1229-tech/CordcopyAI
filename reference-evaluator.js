@@ -104,6 +104,29 @@
     const referenceDuration=ref.reduce((n,r)=>n+r.end-r.start,0);
     return {seconds:total,referenceSeconds:referenceDuration,coverage:total/referenceDuration*100,exactPercent:exact/total*100,rootPercent:rootHit/total*100,triadPercent:qualityHit/total*100,details,mismatches,boundaries:targets.length,boundaryMatched:matched.length,boundaryTolerance,boundaryMAE:matched.length?matched.reduce((s,x)=>s+x,0)/matched.length:null};
   }
+  // Diagnostic only: signed difference between a reference change and a matching predicted change.
+  // A consistent offset can indicate alignment error OR systematic detector latency; it cannot prove either.
+  function diagnoseBoundaries(predictions,reference,{searchWindow=1.5}={}){
+    const pred=predictions.map(p=>({start:Number(p.start),end:Number(p.end),chord:chordInfo(p.chord).label})).sort((a,b)=>a.start-b.start);
+    const ref=reference.map(r=>({start:Number(r.start),end:Number(r.end),chord:chordInfo(r.chord).label})).sort((a,b)=>a.start-b.start);
+    const changes=[];
+    for(let i=1;i<ref.length;i++){
+      if(Math.abs(ref[i-1].end-ref[i].start)>.03||ref[i-1].chord===ref[i].chord)continue;
+      const t=ref[i].start, from=ref[i-1].chord,to=ref[i].chord;
+      const matches=[];
+      for(let j=1;j<pred.length;j++){
+        if(pred[j-1].chord!==from||pred[j].chord!==to)continue;
+        const delta=pred[j].start-t;
+        if(Math.abs(delta)<=searchWindow)matches.push({delta,time:pred[j].start});
+      }
+      matches.sort((a,b)=>Math.abs(a.delta)-Math.abs(b.delta));
+      changes.push({referenceTime:t,from,to,predictedTime:matches[0]?.time??null,delta:matches[0]?.delta??null});
+    }
+    const values=changes.filter(c=>c.delta!==null).map(c=>c.delta).sort((a,b)=>a-b);
+    const median=a=>a.length?a.length%2?a[(a.length-1)/2]:(a[a.length/2-1]+a[a.length/2])/2:null;
+    const med=median(values),mad=med===null?null:median(values.map(v=>Math.abs(v-med)).sort((a,b)=>a-b));
+    return {changes,matched:values.length,total:changes.length,medianDelay:med,mad,consistent:values.length>=3&&mad<=.12&&Math.abs(med)>=.15};
+  }
   function toCsv(rows){return '\uFEFF'+rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');}
-  return {chordInfo,transpose,parseRows,compile,evaluate,toCsv};
+  return {chordInfo,transpose,parseRows,compile,evaluate,diagnoseBoundaries,toCsv};
 });

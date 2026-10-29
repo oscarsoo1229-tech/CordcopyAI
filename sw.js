@@ -1,4 +1,4 @@
-const CACHE = 'chordlens-engine-v11-3-sync-mismatch-1';
+const CACHE = 'chordlens-engine-v11-4-boundary-diagnostic-1';
 const FILES = ['./index.html','./styles.css','./app.js','./chord-engine.js','./manifest.json','./reference-evaluator.js','./reference-ui.js'];
 self.addEventListener('install', event => { self.skipWaiting(); event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES))); });
 self.addEventListener('activate', event => event.waitUntil(Promise.all([self.clients.claim(), caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))])));
