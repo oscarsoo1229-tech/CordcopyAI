@@ -10,7 +10,7 @@
   <meta name="description" content="음원에서 기타 코드를 추정하고 카포와 운지표를 확인하는 도구">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css?v=app-v11-1-chord-evidence-1">
+  <link rel="stylesheet" href="styles.css?v=app-v11-2-groundtruth-1">
   <title>ChordLens — 기타 코드 분석</title>
 </head>
 <body>
@@ -56,8 +56,24 @@
       <p class="help">BPM과 첫 마디 시작을 기준으로 코드를 마디·박에 배치합니다. BPM과 박자표는 추정 또는 수동 설정이며 정확한 채보를 보장하지 않습니다.</p>
       <div id="chordScore" class="chord-score"><div class="empty-state">분석하면 코드 진행 악보가 표시됩니다.</div></div>
     </section>
+    <section class="panel reference-panel" id="referencePanel">
+      <div class="section-heading"><span class="step">05</span><div><h2>정답 악보 비교 (v11.2)</h2><p>코드·카포·마디 또는 시간을 입력하고 실제 분석 결과와 비교합니다.</p></div></div>
+      <p class="help">이 기능은 <strong>분석 정확도를 평가</strong>할 뿐 학습하거나 코드 인식 결과를 자동 수정하지 않습니다. 악보와 MP3의 편곡·조성·재생 시점을 먼저 맞춰 주세요.</p>
+      <div class="reference-controls">
+        <label>정답 입력 방식<select id="referenceMode"><option value="bars" selected>악보 마디 기준</option><option value="seconds">음원 초 기준</option></select></label>
+        <label>정답 악보 카포 프렛<select id="referenceCapo"><option value="0">0 · 없음</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option></select></label>
+      </div>
+      <p id="referenceModeHelp" class="help">시작 마디,끝 다음 마디,악보 코드 (예: 9,11,G → 9~10마디)</p>
+      <textarea id="referenceText" class="reference-text" spellcheck="false" rows="5" placeholder="9,11,G&#10;11,13,D&#10;13,15,Em&#10;15,17,C"></textarea>
+      <div class="reference-actions"><button id="referencePreset" class="button secondary" type="button">I'm Yours 예시 불러오기</button><label class="reference-file-label">정답 CSV 불러오기<input id="referenceFile" type="file" accept=".csv,text/csv" aria-label="정답 코드 CSV 불러오기"></label></div>
+      <div id="referenceAlignedRow" class="reference-aligned"><label><input id="referenceAligned" type="checkbox"> <strong>BPM·박자·첫 마디 시작(초)을 MP3에 맞춰 확인했어요.</strong></label><p class="help">위 ‘코드 진행 악보’의 BPM·박자·첫 마디 시작 값을 사용합니다. 첫 마디 시작은 <em>1마디의 실제 시작 시간</em>입니다. 맞추지 않으면 정확도 점수가 잘못 나와요.</p></div>
+      <div class="reference-actions"><button id="evaluateReference" class="button primary" type="button">정답과 비교하기</button><button id="exportReferenceEvaluation" class="button secondary" type="button" disabled>비교 CSV 저장</button></div>
+      <div id="referenceStatus" class="status-line" aria-live="polite">정답을 입력하고 음원 분석이 끝나면 비교할 수 있어요. 예시 악보는 전체 곡 정답이 아닙니다.</div>
+      <div id="referenceResults" hidden><div id="referenceMetrics" class="reference-metrics"></div><p class="help">점수는 정답 구간 중 실제로 분석 결과가 겹친 시간만의 일치율입니다. ‘기본 코드’는 근음 + 장·단화음 등 품질이 일치한 비율이며 7th 차이는 별도로 계산합니다. 정답이 아닌 구간은 평가하지 않습니다.</p><div id="referenceDetail" class="reference-detail"></div></div>
+    </section>
+
     <section class="panel fingering-panel">
-      <div class="section-heading"><span class="step">05</span><div><h2>기타 운지표</h2><p id="fingeringSubtitle">코드를 선택하면 운지표를 볼 수 있습니다.</p></div></div>
+      <div class="section-heading"><span class="step">06</span><div><h2>기타 운지표</h2><p id="fingeringSubtitle">코드를 선택하면 운지표를 볼 수 있습니다.</p></div></div>
       <div class="selected-chord"><div><small>선택한 코드</small><div id="selectedChord" class="big-chord">—</div></div><div><small>카포 적용 운지</small><div id="shapeChord" class="big-chord accent">—</div></div></div>
       <div id="fretboard" class="fretboard"><div class="empty-state">분석 후 코드 카드를 선택하세요.</div></div>
       <div id="fingeringNote" class="help">운지표는 일반적인 초보자용 폼을 우선 표시합니다. 일부 코드/변형 코드는 운지 정보가 없을 수 있습니다.</div>
@@ -65,7 +81,9 @@
 
     <footer><p>ChordLens iOS PWA · 코드 추정은 자동 분석 결과이며 악보와 다를 수 있습니다.</p><p><a href="README.md">설치 및 사용 안내</a></p></footer>
   </main>
-  <script src="chord-engine.js?v=engine-v11-1-chord-evidence-1"></script>
-  <script src="app.js?v=app-v11-1-chord-evidence-1"></script>
+  <script src="chord-engine.js?v=engine-v11-2-groundtruth-1"></script>
+  <script src="app.js?v=app-v11-2-groundtruth-1"></script>
+  <script src="reference-evaluator.js?v=ref-v11-2-groundtruth-1"></script>
+  <script src="reference-ui.js?v=ref-ui-v11-2-groundtruth-1"></script>
 </body>
 </html>

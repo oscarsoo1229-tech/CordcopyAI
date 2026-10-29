@@ -11,6 +11,7 @@
   const ROOT_ALIASES = {'Db':'C♯','Eb':'D♯','Gb':'F♯','Ab':'G♯','Bb':'A♯','A#':'A♯','C#':'C♯','D#':'D♯','F#':'F♯','G#':'G♯'};
   let audioBuffer = null, audioUrl = null, sourceName = '', results = [], selectedIndex = -1, looping = false, loopTimer = null;
   let diagnosticFrames = []; // Local, per-analysis measurements. Never uploaded.
+  let analysisRevision = 0; // invalidates reference evaluations after reanalysis / new upload
   const player = $('audioPlayer');
 
   function fmtTime(s){ if(!Number.isFinite(s)||s<0)s=0; return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
@@ -27,7 +28,7 @@
     try { setStatus('fileStatus',`불러오는 중: ${file.name}`); await loadBlob(file,file.name); setStatus('fileStatus',`선택됨: ${file.name} · ${fmtTime(audioBuffer.duration)}`); $('analyzeFile').disabled=false; setStatus('analysisStatus','음원 준비 완료. 코드 분석을 시작하세요.'); }
     catch(err){setStatus('fileStatus','이 파일을 읽지 못했습니다. MP3/WAV/M4A 파일로 다시 시도해 주세요.',true);console.error(err);}
   });
-  async function loadBlob(blob,name){ if(audioUrl)URL.revokeObjectURL(audioUrl); audioUrl=URL.createObjectURL(blob); player.src=audioUrl; sourceName=name; const ctx=new (window.AudioContext||window.webkitAudioContext)(); const data=await blob.arrayBuffer(); audioBuffer=await ctx.decodeAudioData(data.slice(0)); await ctx.close(); results=[]; diagnosticFrames=[]; selectedIndex=-1; renderResults(); $('exportDiagnostics').disabled=true; $('exportBundle').disabled=true; $('exportCsv').disabled=true;$('printScore').disabled=true; $('durationLabel').textContent=fmtTime(audioBuffer.duration); $('loopStart').value='0'; $('loopEnd').value=Math.min(10,audioBuffer.duration).toFixed(1); }
+  async function loadBlob(blob,name){ if(audioUrl)URL.revokeObjectURL(audioUrl); audioUrl=URL.createObjectURL(blob); player.src=audioUrl; sourceName=name; const ctx=new (window.AudioContext||window.webkitAudioContext)(); const data=await blob.arrayBuffer(); audioBuffer=await ctx.decodeAudioData(data.slice(0)); await ctx.close(); results=[]; diagnosticFrames=[]; analysisRevision++; selectedIndex=-1; renderResults(); $('exportDiagnostics').disabled=true; $('exportBundle').disabled=true; $('exportCsv').disabled=true;$('printScore').disabled=true; $('durationLabel').textContent=fmtTime(audioBuffer.duration); $('loopStart').value='0'; $('loopEnd').value=Math.min(10,audioBuffer.duration).toFixed(1); }
 
   $('openYoutube').addEventListener('click',()=>{const url=validYouTubeUrl($('youtubeUrl').value);if(!url){setStatus('youtubeStatus','올바른 유튜브 링크를 입력해 주세요.',true);return;}window.open(url,'_blank','noopener,noreferrer');setStatus('youtubeStatus','유튜브 영상이 새 탭에서 열렸습니다. 직접 음원 분석에는 파일 또는 서버 연결이 필요합니다.');});
   $('analyzeYoutube').addEventListener('click',async()=>{
@@ -39,7 +40,7 @@
   function validYouTubeUrl(raw){try{const u=new URL(raw.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be'].includes(u.hostname))return null;if(u.hostname.includes('youtu.be')&&!u.pathname.slice(1))return null;if(u.hostname.includes('youtube.com')&&!u.searchParams.get('v')&&!u.pathname.startsWith('/shorts/')&&!u.pathname.startsWith('/embed/'))return null;return u.href;}catch{return null;}}
 
   $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));if(!$('songBpm').dataset.userSet){const detected=estimateBpm(audioBuffer);if(Number.isFinite(detected)&&detected>=40&&detected<=240){$('songBpm').value=String(detected);$('beatStatus').textContent=`자동 추정 BPM ${detected} · 박자가 맞지 않으면 직접 조정하세요.`;}}diagnosticFrames=[]; results=analyzeBuffer(audioBuffer,beatSettings());
-      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('exportDiagnostics').disabled=false;$('exportBundle').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`[${window.ChordLensHarmony?.version||'unknown'} / ${window.ChordLensHarmony?.getFeatureMode?.()||'legacy'}] 완료: ${results.length}개 구간 · 재분할 ${window.ChordLensHarmony?.getLastTrace?.()?.recoveryAccepted??'미확인'}회. 실제 코드 및 타이밍은 확인이 필요합니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
+      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');analysisRevision++;renderResults();$('exportCsv').disabled=false;$('exportDiagnostics').disabled=false;$('exportBundle').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`[${window.ChordLensHarmony?.version||'unknown'} / ${window.ChordLensHarmony?.getFeatureMode?.()||'legacy'}] 완료: ${results.length}개 구간 · 재분할 ${window.ChordLensHarmony?.getLastTrace?.()?.recoveryAccepted??'미확인'}회. 실제 코드 및 타이밍은 확인이 필요합니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
 
   function analyzeBuffer(buffer,settings){
     // Analysis windows follow musical subdivisions, not a user-selected second interval.
@@ -341,12 +342,15 @@
       const diagnostics=await diagnosticCsvBlob(p=>btn.textContent=`전체 결과 준비 ${p}%`);
       btn.textContent='ZIP 생성 중…';await new Promise(resolve=>setTimeout(resolve,0));
       const entries=[{name:'chords.csv',bytes:new Uint8Array(await chords.arrayBuffer())},{name:'diagnostics.csv',bytes:new Uint8Array(await diagnostics.arrayBuffer())}];
+      const extras=window.ChordLensReference?.getExportFiles?.()||[];
+      for(const extra of extras)entries.push({name:extra.name,bytes:new Uint8Array(await extra.blob.arrayBuffer())});
       const archive=zipArchive(entries);
       const base=(sourceName||'chordlens').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9가-힣_-]+/g,'_').slice(0,55)||'chordlens';
       downloadBlob(archive,`${base}_analysis.zip`);
-      setStatus('analysisStatus','전체 결과 ZIP 저장 완료: chords.csv + diagnostics.csv');
+      setStatus('analysisStatus',`전체 결과 ZIP 저장 완료: chords.csv + diagnostics.csv${extras.length?' + 정답 비교 CSV 3개':''}`);
     }catch(err){console.error('Bundle export failed',err);setStatus('analysisStatus',`전체 결과 저장 오류: ${err.message||String(err)}`,true);}
     finally{btn.disabled=false;btn.textContent=original;}
   });
+  window.ChordLensEvaluationBridge={getSegments:()=>results.map(r=>({...r})),getDuration:()=>audioBuffer?.duration||0,getRevision:()=>analysisRevision,getSourceName:()=>sourceName};
   if('serviceWorker' in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('Service worker registration failed',e)));}
 })();
