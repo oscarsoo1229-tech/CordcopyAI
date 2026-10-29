@@ -23,7 +23,7 @@
   $('audioFile').addEventListener('change', async e => {
     const file=e.target.files && e.target.files[0]; if(!file)return;
     if(file.size > 80*1024*1024){setStatus('fileStatus','파일이 80MB보다 큽니다. 더 짧은 파일을 선택해 주세요.',true);return;}
-    try { setStatus('fileStatus',`불러오는 중: ${file.name}`); await loadBlob(file,file.name); setStatus('fileStatus',`선택됨: ${file.name} · ${fmtTime(audioBuffer.duration)}`); $('analyzeFile').disabled=false; setStatus('analysisStatus','분석 설정을 확인한 뒤 코드 분석을 시작하세요.'); }
+    try { setStatus('fileStatus',`불러오는 중: ${file.name}`); await loadBlob(file,file.name); setStatus('fileStatus',`선택됨: ${file.name} · ${fmtTime(audioBuffer.duration)}`); $('analyzeFile').disabled=false; setStatus('analysisStatus','음원 준비 완료. 코드 분석을 시작하세요.'); }
     catch(err){setStatus('fileStatus','이 파일을 읽지 못했습니다. MP3/WAV/M4A 파일로 다시 시도해 주세요.',true);console.error(err);}
   });
   async function loadBlob(blob,name){ if(audioUrl)URL.revokeObjectURL(audioUrl); audioUrl=URL.createObjectURL(blob); player.src=audioUrl; sourceName=name; const ctx=new (window.AudioContext||window.webkitAudioContext)(); const data=await blob.arrayBuffer(); audioBuffer=await ctx.decodeAudioData(data.slice(0)); await ctx.close(); results=[]; selectedIndex=-1; renderResults(); $('exportCsv').disabled=true;$('printScore').disabled=true; $('durationLabel').textContent=fmtTime(audioBuffer.duration); $('loopStart').value='0'; $('loopEnd').value=Math.min(10,audioBuffer.duration).toFixed(1); }
@@ -37,7 +37,7 @@
   });
   function validYouTubeUrl(raw){try{const u=new URL(raw.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be'].includes(u.hostname))return null;if(u.hostname.includes('youtu.be')&&!u.pathname.slice(1))return null;if(u.hostname.includes('youtube.com')&&!u.searchParams.get('v')&&!u.pathname.startsWith('/shorts/')&&!u.pathname.startsWith('/embed/'))return null;return u.href;}catch{return null;}}
 
-  $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));results=analyzeBuffer(audioBuffer,beatSettings());
+  $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));if(!$('songBpm').dataset.userSet){const detected=estimateBpm(audioBuffer);if(Number.isFinite(detected)&&detected>=40&&detected<=240){$('songBpm').value=String(detected);$('beatStatus').textContent=`자동 추정 BPM ${detected} · 박자가 맞지 않으면 직접 조정하세요.`;}}results=analyzeBuffer(audioBuffer,beatSettings());
       if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: ${results.length}개 구간 · 코드명은 음향 특징으로 추정한 결과입니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
 
   function analyzeBuffer(buffer,settings){
@@ -49,15 +49,16 @@
     const hop=Math.max(1,Math.floor(sr*hopSeconds)); const frames=[];
     for(let start=0;start<mono.length;start+=hop){ if(start+size>mono.length)break; const chroma=new Float64Array(12), re=new Float64Array(size), im=new Float64Array(size); let energy=0;
       for(let i=0;i<size;i++){const v=mono[start+i]*(0.5-0.5*Math.cos(2*Math.PI*i/(size-1)));re[i]=v;energy+=v*v;}
-      if(energy/size<1e-7) {frames.push({start:start/sr,end:Math.min((start+hop)/sr,buffer.duration),chord:'N',confidence:0});continue;}
+      if(energy/size<1e-7) {frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),chord:'N',confidence:0});continue;}
       fft(re,im);
       for(let k=2;k<size/2;k++){const freq=k*sr/size;if(freq<55||freq>1500)continue;const mag=Math.hypot(re[k],im[k]);const midi=Math.round(69+12*Math.log2(freq/440));const pc=((midi%12)+12)%12;const weight=mag/Math.pow(freq,.35);chroma[pc]+=weight;}
       const norm=Math.sqrt(chroma.reduce((a,b)=>a+b*b,0))||1;for(let i=0;i<12;i++)chroma[i]/=norm;
-      const match=bestChord(chroma);frames.push({start:start/sr,end:Math.min((start+hop)/sr,buffer.duration),chord:match.chord,confidence:match.score});
+      const match=bestChord(chroma);frames.push({start:Math.max(0,(start+size/2-hop/2)/sr),end:Math.min((start+size/2+hop/2)/sr,buffer.duration),chord:match.chord,confidence:match.score});
     }
     // Smooth the per-frame predictions with a temporal model instead of splitting
     // a sustained chord every four seconds. This reduces flicker, not pitch errors.
     const stable=stabilizeChords(frames,hopSeconds,beatSeconds);
+    if(stable.length){stable[0].start=0;stable[stable.length-1].end=buffer.duration;}
     const grouped=[];
     for(const f of stable){
       const last=grouped[grouped.length-1];
@@ -192,10 +193,10 @@
     }
     return bestBpm;
   }
-  ['songBpm','timeSignature','beatOffset'].forEach(id=>$(id).addEventListener('change',renderScore));
+  ['songBpm','timeSignature','beatOffset'].forEach(id=>$(id).addEventListener('change',()=>{if(id==='songBpm')$('songBpm').dataset.userSet='1';renderScore();if(results.length)setStatus('analysisStatus','박자 설정이 변경됐습니다. 타이밍을 다시 계산하려면 코드 분석을 다시 눌러 주세요.');}));
   $('detectBpm').addEventListener('click',()=>{
     if(!audioBuffer){$('beatStatus').textContent='먼저 음원을 불러와 주세요.';return;}
-    const bpm=estimateBpm(audioBuffer);$('songBpm').value=String(bpm);
+    const bpm=estimateBpm(audioBuffer);$('songBpm').value=String(bpm);$('songBpm').dataset.userSet='1';
     $('beatStatus').textContent=`추정 BPM: ${bpm}. 2배/절반 템포로 인식될 수 있으니 실제 박자에 맞춰 조정하세요.`;
     renderScore();
   });

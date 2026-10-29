@@ -1,4 +1,4 @@
-const CACHE = 'chordlens-upload-restore-v3';
+const CACHE = 'chordlens-timing-v3';
 const FILES = ['./index.html','./styles.css','./app.js','./music-structure.js','./manifest.json'];
 self.addEventListener('install', event => { self.skipWaiting(); event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES))); });
 self.addEventListener('activate', event => event.waitUntil(Promise.all([self.clients.claim(), caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))])));
