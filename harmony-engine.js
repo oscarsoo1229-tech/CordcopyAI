@@ -1,8 +1,10 @@
-/* ChordLens harmonic analysis v9.3 experimental. Offline, browser-only; no external dependencies.
+/* ChordLens harmonic analysis v9.6 trace experimental. Offline, browser-only; no external dependencies.
    Log-frequency pitch-class weighting and whole-song Viterbi decoding.
    This is a DSP baseline, NOT a trained chord-recognition model. */
 (function(){
   'use strict';
+  const VERSION='v9.6-trace-1';
+  let lastTrace=null;
   const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const TYPES=[['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],['m7',[0,3,7,10]],['maj7',[0,4,7,11]],['sus4',[0,5,7]]];
   const STATES=[];
@@ -178,13 +180,16 @@
       }
       return choice;
     }
+    const initialBoundaryCount=boundaries.length;
+    let recoveryAttempts=0, recoveryAccepted=0;
     // Iteratively recover missing boundaries, but avoid pathological fragmentation.
     for(let iteration=0;iteration<5;iteration++){
       let inserted=0;
       for(let i=0;i<boundaries.length-1;i++){
         const a=boundaries[i],b=boundaries[i+1];
+        recoveryAttempts++;
         const split=bestSplit(a,b);
-        if(split){boundaries.splice(i+1,0,split.t);inserted++;i++;}
+        if(split){boundaries.splice(i+1,0,split.t);inserted++;recoveryAccepted++;i++;}
       }
       if(!inserted)break;
     }
@@ -229,6 +234,12 @@
       if(last&&last.chord===r.chord){const a=last.end-last.start,b=r.end-r.start;last.confidence=(last.confidence*a+r.confidence*b)/(a+b);last.end=r.end;}
       else merged.push({...r});
     }
+    const longest=merged.reduce((best,r)=>Math.max(best,r.end-r.start),0);
+    lastTrace={version:VERSION,frameCount:n,noveltyMedian:median,noveltyThreshold:threshold,
+      candidatePeaks:candidates.length,initialBoundaries:initialBoundaryCount,
+      recoveryAttempts,recoveryAccepted,finalBoundaries:boundaries.length,
+      decodedRegions:decoded.length,mergedSegments:merged.length,longestSeconds:longest,
+      timestamp:new Date().toISOString()};
     return merged;
   }
   // Read-only diagnostics: does not alter the segmentation or decoding model.
@@ -252,5 +263,5 @@
     for(let k=0;k<12;k++){dot+=left[k]*right[k];a+=left[k]*left[k];b+=right[k]*right[k];}
     return Math.max(0,1-dot/(Math.sqrt(a*b)||1));
   }
-  window.ChordLensHarmony={features,scores,decode,segment,topCandidates,localChange};
+  window.ChordLensHarmony={version:VERSION,features,scores,decode,segment,topCandidates,localChange,getLastTrace:()=>lastTrace?{...lastTrace}:null};
 })();

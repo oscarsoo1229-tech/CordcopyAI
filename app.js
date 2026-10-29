@@ -39,7 +39,7 @@
   function validYouTubeUrl(raw){try{const u=new URL(raw.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be'].includes(u.hostname))return null;if(u.hostname.includes('youtu.be')&&!u.pathname.slice(1))return null;if(u.hostname.includes('youtube.com')&&!u.searchParams.get('v')&&!u.pathname.startsWith('/shorts/')&&!u.pathname.startsWith('/embed/'))return null;return u.href;}catch{return null;}}
 
   $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));if(!$('songBpm').dataset.userSet){const detected=estimateBpm(audioBuffer);if(Number.isFinite(detected)&&detected>=40&&detected<=240){$('songBpm').value=String(detected);$('beatStatus').textContent=`자동 추정 BPM ${detected} · 박자가 맞지 않으면 직접 조정하세요.`;}}diagnosticFrames=[]; results=analyzeBuffer(audioBuffer,beatSettings());
-      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('exportDiagnostics').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: 음악적 코드 변화에 따라 ${results.length}개 구간을 추정했어요. 실제 코드 및 타이밍은 확인이 필요합니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
+      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('exportDiagnostics').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`[${window.ChordLensHarmony?.version||'unknown'}] 완료: ${results.length}개 구간 · 재분할 ${window.ChordLensHarmony?.getLastTrace?.()?.recoveryAccepted??'미확인'}회. 실제 코드 및 타이밍은 확인이 필요합니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
 
   function analyzeBuffer(buffer,settings){
     // Analysis windows follow musical subdivisions, not a user-selected second interval.
@@ -281,7 +281,8 @@
     try{
       const harmonic=window.ChordLensHarmony;
       const noteNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-      const headers=['time_seconds','window_end_seconds','silent','output_chord','output_segment_start','output_segment_end','chroma_change','top_chord','top_score','second_chord','second_score','score_margin',...noteNames.map(n=>'chroma_'+n),...noteNames.map(n=>'bass_'+n)];
+      const trace=harmonic.getLastTrace?.()||{};
+      const headers=['engine_version','recovery_accepted','candidate_peaks','final_boundaries','time_seconds','window_end_seconds','silent','output_chord','output_segment_start','output_segment_end','chroma_change','top_chord','top_score','second_chord','second_score','score_margin',...noteNames.map(n=>'chroma_'+n),...noteNames.map(n=>'bass_'+n)];
       const escape=value=>'"'+String(value??'').replace(/"/g,'""')+'"';
       const parts=['\ufeff',headers.map(escape).join(',')+'\r\n'];
       const numeric=x=>Number.isFinite(x)?x.toFixed(5):'';
@@ -296,7 +297,7 @@
           const region=results[regionIndex];
           const candidates=typeof harmonic.topCandidates==='function'?harmonic.topCandidates(f.scores,2):[];
           const novelty=typeof harmonic.localChange==='function'?harmonic.localChange(diagnosticFrames,i,4):0;
-          const row=[numeric(midpoint),numeric(f.end),f.silent?1:0,region?.chord||'',numeric(region?.start),numeric(region?.end),numeric(novelty),candidates[0]?.name||'',numeric(candidates[0]?.score),candidates[1]?.name||'',numeric(candidates[1]?.score),numeric(candidates.length>1?candidates[0].score-candidates[1].score:NaN),...Array.from({length:12},(_,k)=>numeric(f.chroma?.[k])),...Array.from({length:12},(_,k)=>numeric(f.bass?.[k]))];
+          const row=[harmonic.version||'',trace.recoveryAccepted??'',trace.candidatePeaks??'',trace.finalBoundaries??'',numeric(midpoint),numeric(f.end),f.silent?1:0,region?.chord||'',numeric(region?.start),numeric(region?.end),numeric(novelty),candidates[0]?.name||'',numeric(candidates[0]?.score),candidates[1]?.name||'',numeric(candidates[1]?.score),numeric(candidates.length>1?candidates[0].score-candidates[1].score:NaN),...Array.from({length:12},(_,k)=>numeric(f.chroma?.[k])),...Array.from({length:12},(_,k)=>numeric(f.bass?.[k]))];
           lines.push(row.map(escape).join(','));
         }
         parts.push(lines.join('\r\n')+'\r\n');
@@ -306,7 +307,7 @@
       }
       const blob=new Blob(parts,{type:'text/csv;charset=utf-8'});
       const url=URL.createObjectURL(blob);
-      const a=document.createElement('a');a.href=url;a.download='chordlens-diagnostics-v9-4-1.csv';
+      const a=document.createElement('a');a.href=url;a.download='chordlens-diagnostics-v9-6.csv';
       document.body.appendChild(a);a.click();a.remove();
       setTimeout(()=>URL.revokeObjectURL(url),30000);
       setStatus('analysisStatus',`진단 CSV 생성 완료 (${diagnosticFrames.length}프레임). 브라우저 다운로드 목록을 확인해 주세요.`);
