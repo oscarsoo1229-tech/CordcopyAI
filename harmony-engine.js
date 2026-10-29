@@ -1,9 +1,9 @@
-/* ChordLens harmonic analysis v9.6 trace experimental. Offline, browser-only; no external dependencies.
+/* ChordLens harmonic analysis v9.7 recovery trace experimental. Offline, browser-only; no external dependencies.
    Log-frequency pitch-class weighting and whole-song Viterbi decoding.
    This is a DSP baseline, NOT a trained chord-recognition model. */
 (function(){
   'use strict';
-  const VERSION='v9.6-trace-1';
+  const VERSION='v9.7-recovery-1';
   let lastTrace=null;
   const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const TYPES=[['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],['m7',[0,3,7,10]],['maj7',[0,4,7,11]],['sus4',[0,5,7]]];
@@ -158,34 +158,39 @@
     // This recovers missed changes without inserting artificial time-grid boundaries.
     // A split is accepted only if two different harmonies explain the observations
     // better than one harmony, with local chroma change as supporting evidence.
+    // Trace why candidates are rejected. Use per-frame evidence rather than
+    // multiplying a whole-region score improvement by the analysis hop size.
+    const rejection={tooShort:0,sameHarmony:0,insufficientFrames:0,weakGain:0,weakChange:0};
+    let evaluatedSplits=0, bestObservedGain=0, bestObservedChange=0;
     function bestSplit(a,b){
       const length=b-a;
-      if(length<2*gap || length*hop<2.4)return null;
-      const whole=ranked(a,b);
-      const step=length>350?3:1;
+      if(length<2*gap || length*hop<2.4){rejection.tooShort++;return null;}
+      const whole=ranked(a,b), step=length>350?3:1;
       let choice=null;
       for(let t=a+gap;t<=b-gap;t+=step){
+        evaluatedSplits++;
         const left=ranked(a,t),right=ranked(t,b);
-        if(left.id<0||right.id<0||left.id===right.id)continue;
-        const lcount=validPrefix[t]-validPrefix[a],rcount=validPrefix[b]-validPrefix[t];
-        if(lcount<3||rcount<3)continue;
-        const gain=(left.score*lcount+right.score*rcount-whole.score*(lcount+rcount))*hop;
+        if(left.id<0||right.id<0||left.id===right.id){rejection.sameHarmony++;continue;}
+        const lc=validPrefix[t]-validPrefix[a],rc=validPrefix[b]-validPrefix[t];
+        if(lc<5||rc<5){rejection.insufficientFrames++;continue;}
+        // Compare one harmonic model to two, on a common per-frame scale.
+        const gain=(left.score*lc+right.score*rc-whole.score*(lc+rc))/(lc+rc);
         const local=difference(t,Math.max(2,Math.round(.55/hop)));
-        // Demand more evidence for short regions; allow strong harmonic evidence
-        // to recover a change even if transient novelty is weak.
-        const needed=.22+.10/Math.sqrt(Math.max(.5,length*hop));
-        if(gain<needed || (local<.012 && gain<needed*2.4))continue;
-        const quality=gain+.7*local;
+        bestObservedGain=Math.max(bestObservedGain,gain);
+        bestObservedChange=Math.max(bestObservedChange,local);
+        if(gain<.042){rejection.weakGain++;continue;}
+        if(local<.018 && gain<.075){rejection.weakChange++;continue;}
+        const quality=gain+.40*local;
         if(!choice||quality>choice.quality)choice={t,quality};
       }
       return choice;
     }
     const initialBoundaryCount=boundaries.length;
     let recoveryAttempts=0, recoveryAccepted=0;
-    // Iteratively recover missing boundaries, but avoid pathological fragmentation.
-    for(let iteration=0;iteration<5;iteration++){
+    // Conservative cap prevents runaway fragmentation on busy recordings.
+    for(let iteration=0;iteration<3 && recoveryAccepted<16;iteration++){
       let inserted=0;
-      for(let i=0;i<boundaries.length-1;i++){
+      for(let i=0;i<boundaries.length-1 && recoveryAccepted<16;i++){
         const a=boundaries[i],b=boundaries[i+1];
         recoveryAttempts++;
         const split=bestSplit(a,b);
@@ -237,7 +242,7 @@
     const longest=merged.reduce((best,r)=>Math.max(best,r.end-r.start),0);
     lastTrace={version:VERSION,frameCount:n,noveltyMedian:median,noveltyThreshold:threshold,
       candidatePeaks:candidates.length,initialBoundaries:initialBoundaryCount,
-      recoveryAttempts,recoveryAccepted,finalBoundaries:boundaries.length,
+      recoveryAttempts,recoveryAccepted,rejection,evaluatedSplits,bestObservedGain,bestObservedChange,finalBoundaries:boundaries.length,
       decodedRegions:decoded.length,mergedSegments:merged.length,longestSeconds:longest,
       timestamp:new Date().toISOString()};
     return merged;
