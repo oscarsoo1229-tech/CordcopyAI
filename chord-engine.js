@@ -1,10 +1,10 @@
-/* ChordLens v9.9 consolidated engine. Original v9.8 behavior preserved. */
+/* ChordLens v10 local-window harmonic recovery. Browser-only DSP; not a trained model. */
 /* ChordLens harmonic analysis v9.7 recovery trace experimental. Offline, browser-only; no external dependencies.
    Log-frequency pitch-class weighting and whole-song Viterbi decoding.
    This is a DSP baseline, NOT a trained chord-recognition model. */
 (function(){
   'use strict';
-  const VERSION='v9.8-postmerge-1';
+  const VERSION='v10-local-window-1';
   let lastTrace=null;
   const NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   const TYPES=[['', [0,4,7]],['m',[0,3,7]],['7',[0,4,7,10]],['m7',[0,3,7,10]],['maj7',[0,4,7,11]],['sus4',[0,5,7]]];
@@ -246,28 +246,55 @@
     const preMergeRegions=decoded.length;
     const mergedBeforeRescue=merged.length;
     let postMergeAttempts=0,postMergeAccepted=0,postMergeRejected=0;
+    const localRejections={noWindowContrast:0,weakEvidence:0,tooClose:0};
+    let localWindowCandidates=0, localWindowAccepted=0;
     const rescued=[];
     function indexAt(seconds){
       let lo=0,hi=n;
       while(lo<hi){const mid=(lo+hi)>>1;if(frames[mid].start<seconds)lo=mid+1;else hi=mid;}
       return Math.min(n,Math.max(0,lo));
     }
+    // Unlike a whole-region left/right average, two short adjacent windows can
+    // detect a chord change inside a repeating progression (A-B-A-B). The score
+    // must favor different chord identities on both sides, and the local chroma
+    // must also change. No fixed-time segmentation is inserted.
+    function localWindowSplit(a,b){
+      const windowFrames=Math.max(5,Math.round(1.15/hop));
+      const step=Math.max(1,Math.round(.23/hop));
+      if(b-a<2*windowFrames+2*gap)return null;
+      let best=null;
+      for(let t=a+windowFrames;t<=b-windowFrames;t+=step){
+        const left=ranked(t-windowFrames,t),right=ranked(t,t+windowFrames);
+        if(left.id<0||right.id<0||left.id===right.id){localRejections.noWindowContrast++;continue;}
+        localWindowCandidates++;
+        const leftCount=validPrefix[t]-validPrefix[t-windowFrames];
+        const rightCount=validPrefix[t+windowFrames]-validPrefix[t];
+        if(leftCount<windowFrames*.65||rightCount<windowFrames*.65)continue;
+        const leftOwn=left.score-(scorePrefix[right.id][t]-scorePrefix[right.id][t-windowFrames])/leftCount;
+        const rightOwn=right.score-(scorePrefix[left.id][t+windowFrames]-scorePrefix[left.id][t])/rightCount;
+        const change=difference(t,Math.max(3,Math.round(.55/hop)));
+        // Bidirectional contrast rejects changes supported only on one side.
+        if(leftOwn<.065||rightOwn<.065||change<.023){localRejections.weakEvidence++;continue;}
+        const quality=Math.min(leftOwn,rightOwn)+.35*change;
+        if(!best||quality>best.quality)best={t,quality,left,right,fromLocalWindow:true};
+      }
+      return best;
+    }
     function rescue(region,depth){
       const a=indexAt(region.start),b=indexAt(region.end);
-      if(depth>=2||region.end-region.start<9||b-a<2*gap+8){rescued.push(region);return;}
+      if(depth>=4||region.end-region.start<4.5||b-a<2*gap+8){rescued.push(region);return;}
       postMergeAttempts++;
-      const split=bestSplit(a,b);
+      // Try local windows first: whole-region averaging can hide repeated chords.
+      let split=localWindowSplit(a,b);
+      if(!split){split=bestSplit(a,b);if(split){split.left=ranked(a,split.t);split.right=ranked(split.t,b);}}
       if(!split){postMergeRejected++;rescued.push(region);return;}
-      const t=split.t, left=ranked(a,t),right=ranked(t,b);
-      const leftSeconds=(t-a)*hop,rightSeconds=(b-t)*hop;
-      const local=difference(t,Math.max(2,Math.round(.65/hop)));
-      // Prevent forced splits where the alternate chord is only a transient.
-      if(left.id<0||right.id<0||left.id===right.id||leftSeconds<1.8||rightSeconds<1.8||local<.025){
-        postMergeRejected++;rescued.push(region);return;
-      }
+      const t=split.t,left=split.left,right=split.right;
       const splitTime=Math.max(region.start,Math.min(region.end,(frames[t-1].end+frames[t].start)/2));
-      if(splitTime-region.start<1.8||region.end-splitTime<1.8){postMergeRejected++;rescued.push(region);return;}
+      if(left.id<0||right.id<0||left.id===right.id||splitTime-region.start<1.6||region.end-splitTime<1.6){
+        localRejections.tooClose++;postMergeRejected++;rescued.push(region);return;
+      }
       postMergeAccepted++;
+      if(split.fromLocalWindow)localWindowAccepted++;
       const l={start:region.start,end:splitTime,chord:STATES[left.id].name,confidence:Math.max(0,Math.min(1,left.score/3))};
       const r={start:splitTime,end:region.end,chord:STATES[right.id].name,confidence:Math.max(0,Math.min(1,right.score/3))};
       rescue(l,depth+1);rescue(r,depth+1);
@@ -285,7 +312,7 @@
     lastTrace={version:VERSION,frameCount:n,noveltyMedian:median,noveltyThreshold:threshold,
       candidatePeaks:candidates.length,initialBoundaries:initialBoundaryCount,
       recoveryAttempts,recoveryAccepted,rejection,evaluatedSplits,bestObservedGain,bestObservedChange,finalBoundaries:boundaries.length,
-      decodedRegions:preMergeRegions,mergedBeforeRescue,mergedSegments:finalSegments.length,postMergeAttempts,postMergeAccepted,postMergeRejected,longestSeconds:longest,
+      decodedRegions:preMergeRegions,mergedBeforeRescue,mergedSegments:finalSegments.length,postMergeAttempts,postMergeAccepted,postMergeRejected,localWindowCandidates,localWindowAccepted,localRejections,longestSeconds:longest,
       timestamp:new Date().toISOString()};
     return finalSegments;
   }

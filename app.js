@@ -283,7 +283,7 @@
     if(!harmonic)throw new Error('진단 모듈이 로드되지 않았습니다.');
     const noteNames=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
     const trace=harmonic.getLastTrace?.()||{};
-    const headers=['engine_version','recovery_accepted','recovery_attempts','split_evaluations','reject_too_short','reject_same_harmony','reject_weak_gain','reject_weak_change','best_split_gain','best_local_change','candidate_peaks','final_boundaries','time_seconds','window_end_seconds','silent','output_chord','output_segment_start','output_segment_end','chroma_change','top_chord','top_score','second_chord','second_score','score_margin',...noteNames.map(n=>'chroma_'+n),...noteNames.map(n=>'bass_'+n)];
+    const headers=['engine_version','recovery_accepted','recovery_attempts','split_evaluations','reject_too_short','reject_same_harmony','reject_weak_gain','reject_weak_change','best_split_gain','best_local_change','candidate_peaks','final_boundaries','local_window_candidates','local_window_accepted','postmerge_attempts','postmerge_accepted','time_seconds','window_end_seconds','silent','output_chord','output_segment_start','output_segment_end','chroma_change','top_chord','top_score','second_chord','second_score','score_margin',...noteNames.map(n=>'chroma_'+n),...noteNames.map(n=>'bass_'+n)];
     const parts=['\ufeff',headers.map(csvEscape).join(',')+'\r\n'];
     const numeric=x=>Number.isFinite(x)?x.toFixed(5):'';
     let regionIndex=0;
@@ -295,7 +295,7 @@
         const region=results[regionIndex];
         const candidates=typeof harmonic.topCandidates==='function'?harmonic.topCandidates(f.scores,2):[];
         const novelty=typeof harmonic.localChange==='function'?harmonic.localChange(diagnosticFrames,i,4):0;
-        const row=[harmonic.version||'',trace.recoveryAccepted??'',trace.recoveryAttempts??'',trace.evaluatedSplits??'',trace.rejection?.tooShort??'',trace.rejection?.sameHarmony??'',trace.rejection?.weakGain??'',trace.rejection?.weakChange??'',numeric(trace.bestObservedGain),numeric(trace.bestObservedChange),trace.candidatePeaks??'',trace.finalBoundaries??'',numeric(midpoint),numeric(f.end),f.silent?1:0,region?.chord||'',numeric(region?.start),numeric(region?.end),numeric(novelty),candidates[0]?.name||'',numeric(candidates[0]?.score),candidates[1]?.name||'',numeric(candidates[1]?.score),numeric(candidates.length>1?candidates[0].score-candidates[1].score:NaN),...Array.from({length:12},(_,k)=>numeric(f.chroma?.[k])),...Array.from({length:12},(_,k)=>numeric(f.bass?.[k]))];
+        const row=[harmonic.version||'',trace.recoveryAccepted??'',trace.recoveryAttempts??'',trace.evaluatedSplits??'',trace.rejection?.tooShort??'',trace.rejection?.sameHarmony??'',trace.rejection?.weakGain??'',trace.rejection?.weakChange??'',numeric(trace.bestObservedGain),numeric(trace.bestObservedChange),trace.candidatePeaks??'',trace.finalBoundaries??'',trace.localWindowCandidates??'',trace.localWindowAccepted??'',trace.postMergeAttempts??'',trace.postMergeAccepted??'',numeric(midpoint),numeric(f.end),f.silent?1:0,region?.chord||'',numeric(region?.start),numeric(region?.end),numeric(novelty),candidates[0]?.name||'',numeric(candidates[0]?.score),candidates[1]?.name||'',numeric(candidates[1]?.score),numeric(candidates.length>1?candidates[0].score-candidates[1].score:NaN),...Array.from({length:12},(_,k)=>numeric(f.chroma?.[k])),...Array.from({length:12},(_,k)=>numeric(f.bass?.[k]))];
         lines.push(row.map(csvEscape).join(','));
       }
       parts.push(lines.join('\r\n')+'\r\n');
