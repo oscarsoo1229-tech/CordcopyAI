@@ -1,5 +1,5 @@
-const CACHE = 'chordlens-harmony-v9-7-recovery-1';
-const FILES = ['./index.html','./styles.css','./app.js','./harmony-engine.js','./music-structure.js','./manifest.json'];
+const CACHE = 'chordlens-engine-v9-9-simplified-1';
+const FILES = ['./index.html','./styles.css','./app.js','./chord-engine.js','./manifest.json'];
 self.addEventListener('install', event => { self.skipWaiting(); event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES))); });
 self.addEventListener('activate', event => event.waitUntil(Promise.all([self.clients.claim(), caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))])));
 self.addEventListener('fetch', event => {
