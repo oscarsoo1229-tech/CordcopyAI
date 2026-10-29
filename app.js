@@ -118,7 +118,7 @@
     if(!results.length){wrap.innerHTML='<div class="empty-state">분석 결과가 여기에 표시됩니다.</div>';renderScore();return;}
     results.forEach((r,i)=>{
       const b=document.createElement('button');b.className='chord-card'+(i===selectedIndex?' active':'');
-      b.innerHTML=`<strong>${escapeHtml(capoShape(r.chord))}</strong><small>실제 음: ${escapeHtml(r.chord)}</small><small>코드 변화 구간</small>`;
+      b.innerHTML=`<strong>${escapeHtml(capoShape(r.chord))}</strong><small>추정 코드: ${escapeHtml(r.chord)}</small><small>코드 변화 구간</small>`;
       b.addEventListener('click',()=>selectResult(i));wrap.appendChild(b);
     });renderScore();
   }

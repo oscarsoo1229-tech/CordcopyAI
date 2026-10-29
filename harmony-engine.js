@@ -38,7 +38,7 @@
       const state=STATES[s],w=state.weights;
       let dot=0,norm=0,nonChord=0;
       for(let p=0;p<12;p++){dot+=chroma[p]*w[p];norm+=w[p]*w[p];if(!w[p])nonChord+=chroma[p]*chroma[p];}
-      const complexity=(state.name.endsWith('maj7')||state.name.endsWith('m7')||state.name.endsWith('sus4')||state.name.endsWith('7'))?.055:0;
+      const complexity=state.name.endsWith('maj7')?.16:state.name.endsWith('sus4')?.14:state.name.endsWith('m7')?.11:state.name.endsWith('7')?.10:0;
       out[s]=2.8*dot/Math.sqrt(norm)-.50*Math.sqrt(nonChord)+.22*bass[state.root]-complexity;
     }
     // N is selected for near-silent frames separately; avoid spurious N on music.
@@ -47,21 +47,22 @@
   }
   function decode(frames,beatDuration){
     if(!frames.length)return [];
-    const count=STATES.length+1, T=frames.length;
+    const count=STATES.length+1,T=frames.length;
     const back=new Uint8Array(T*count);
     let prev=new Float64Array(count),next=new Float64Array(count);
-    for(let s=0;s<count;s++)prev[s]=frames[0].silent?(s===count-1?1:-4):frames[0].scores[s];
-    // Transition penalty discourages chord flicker but never forces changes on a timer.
-    const changePenalty=.60;
+    const silentScore=(s,silent)=>silent?(s===count-1?1.2:-3):s===count-1?-2:0;
+    for(let s=0;s<count;s++)prev[s]=frames[0].silent?silentScore(s,true):frames[0].scores[s]+silentScore(s,false);
+    // A switch requires persistent acoustic evidence. The penalty is in the
+    // same units as frame emission scores, not elapsed seconds.
+    const changePenalty=2.1;
     for(let t=1;t<T;t++){
       for(let s=0;s<count;s++){
         let best=-Infinity,from=0;
         for(let p=0;p<count;p++){
-          const transition=p===s?0:changePenalty;
-          const value=prev[p]-transition;
+          const value=prev[p]-(p===s?0:changePenalty);
           if(value>best){best=value;from=p;}
         }
-        next[s]=best+(frames[t].silent?(s===count-1?1:-4):frames[t].scores[s]);
+        next[s]=best+(frames[t].silent?silentScore(s,true):frames[t].scores[s]+silentScore(s,false));
         back[t*count+s]=from;
       }
       [prev,next]=[next,prev];
@@ -69,7 +70,29 @@
     let state=0;for(let s=1;s<count;s++)if(prev[s]>prev[state])state=s;
     const path=new Uint8Array(T);
     for(let t=T-1;t>=0;t--){path[t]=state;if(t>0)state=back[t*count+state];}
-    return frames.map((frame,i)=>({start:frame.start,end:frame.end,chord:path[i]===STATES.length?'N':STATES[path[i]].name,confidence:frame.silent?0:Math.max(0,Math.min(1,(frame.scores[path[i]]||0)/3))}));
+    // Remove very short islands only when their neighbors agree. This avoids
+    // creating invented changes from isolated bass notes or vocal ornaments.
+    const hop=T>1?Math.max(.02,frames[1].start-frames[0].start):.115;
+    const minFrames=Math.max(2,Math.round(Math.min(.38,Math.max(.18,beatDuration*.40))/hop));
+    for(let pass=0;pass<2;pass++){
+      const runs=[];
+      for(let i=0;i<T;){let j=i+1;while(j<T&&path[j]===path[i])j++;runs.push({i,j,s:path[i]});i=j;}
+      for(let k=1;k<runs.length-1;k++){
+        const a=runs[k-1],b=runs[k],c=runs[k+1];
+        if(b.j-b.i<minFrames&&a.s===c.s&&b.s!==count-1){
+          for(let i=b.i;i<b.j;i++)path[i]=a.s;
+        }
+      }
+    }
+    return frames.map((frame,i)=>{
+      const s=path[i],scores=frame.scores;
+      if(s===count-1||frame.silent)return {start:frame.start,end:frame.end,chord:'N',confidence:0};
+      let runner=-Infinity;
+      for(let j=0;j<STATES.length;j++)if(j!==s)runner=Math.max(runner,scores[j]);
+      const margin=scores[s]-runner;
+      return {start:frame.start,end:frame.end,chord:STATES[s].name,
+        confidence:Math.max(0,Math.min(1,.5+margin*.5))};
+    });
   }
   window.ChordLensHarmony={features,scores,decode};
 })();
