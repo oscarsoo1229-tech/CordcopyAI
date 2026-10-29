@@ -231,5 +231,26 @@
     }
     return merged;
   }
-  window.ChordLensHarmony={features,scores,decode,segment};
+  // Read-only diagnostics: does not alter the segmentation or decoding model.
+  function topCandidates(frameScores,count=2){
+    if(!frameScores)return [];
+    return Array.from(frameScores,(score,i)=>({name:STATES[i].name,score}))
+      .filter(x=>Number.isFinite(x.score)).sort((a,b)=>b.score-a.score).slice(0,count);
+  }
+  function localChange(frames,index,radius=4){
+    const average=(a,b)=>{
+      const sum=new Float64Array(12);let count=0;
+      for(let i=Math.max(0,a);i<Math.min(frames.length,b);i++){
+        const c=frames[i].chroma;if(!c)continue;
+        for(let k=0;k<12;k++)sum[k]+=c[k];count++;
+      }
+      return count?Array.from(sum,v=>v/count):null;
+    };
+    const left=average(index-radius,index),right=average(index,index+radius);
+    if(!left||!right)return 0;
+    let dot=0,a=0,b=0;
+    for(let k=0;k<12;k++){dot+=left[k]*right[k];a+=left[k]*left[k];b+=right[k]*right[k];}
+    return Math.max(0,1-dot/(Math.sqrt(a*b)||1));
+  }
+  window.ChordLensHarmony={features,scores,decode,segment,topCandidates,localChange};
 })();
