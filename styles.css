@@ -6,3 +6,10 @@
 
 /* Beat-aligned chord measures */
 .beat-controls{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:12px 0}.beat-controls label{font-size:11px;color:var(--muted);display:flex;flex-direction:column;gap:5px}.beat-controls input,.beat-controls select{padding:9px}.beat-controls button{min-height:34px}.chord-score{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}.score-measure{border:1px solid #455064;border-radius:12px;background:#0e141d;overflow:hidden;break-inside:avoid}.measure-heading{font-size:11px;color:var(--muted);padding:8px 10px;border-bottom:1px solid #354154}.measure-beats{display:flex;min-height:78px}.measure-beat{flex:1;min-width:0;border:0;border-right:1px solid #354154;background:transparent;color:var(--text);padding:10px 2px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px}.measure-beat:last-child{border-right:0}.measure-beat small{font-size:10px;color:var(--muted)}.measure-beat strong{font-size:19px}.measure-beat.active{background:#354c28;box-shadow:inset 0 0 0 1px var(--accent)}@media(max-width:440px){.beat-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.chord-score{grid-template-columns:1fr}}@media print{.beat-controls,#beatStatus{display:none!important}.chord-score{grid-template-columns:repeat(2,minmax(0,1fr))}.score-measure{background:white;color:#111;border-color:#555}.measure-beat{color:#111;border-color:#aaa}.measure-beat.active{background:white;box-shadow:none}.measure-heading,.measure-beat small{color:#555}}
+
+/* Phrase overview */
+.structure-overview{margin:0 0 18px;padding:12px;border:1px solid var(--border,#3a4552);border-radius:12px}
+.structure-overview>strong{display:block;margin-bottom:10px}
+.structure-phrases{display:flex;flex-wrap:wrap;gap:8px}
+.structure-phrase{background:var(--surface,#202a35);color:inherit;border:1px solid var(--border,#3a4552);border-radius:8px;padding:8px 10px;text-align:left;cursor:pointer;font:inherit;font-size:.85rem}
+.structure-phrase:hover{outline:1px solid #a3e663}

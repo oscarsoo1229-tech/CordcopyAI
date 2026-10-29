@@ -37,98 +37,67 @@
   });
   function validYouTubeUrl(raw){try{const u=new URL(raw.trim());if(!['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com','youtu.be','www.youtu.be'].includes(u.hostname))return null;if(u.hostname.includes('youtu.be')&&!u.pathname.slice(1))return null;if(u.hostname.includes('youtube.com')&&!u.searchParams.get('v')&&!u.pathname.startsWith('/shorts/')&&!u.pathname.startsWith('/embed/'))return null;return u.href;}catch{return null;}}
 
-  $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));results=analyzeBuffer(audioBuffer,Number($('hopSize').value));if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: ${results.length}개 구간 · 코드명은 음향 특징으로 추정한 결과입니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
+  $('analyzeFile').addEventListener('click',async()=>{if(!audioBuffer)return;const btn=$('analyzeFile');btn.disabled=true;try{setStatus('analysisStatus','음원을 분석하고 있습니다…');await new Promise(r=>setTimeout(r,20));results=analyzeBuffer(audioBuffer,Number($('hopSize').value));
+      if(window.ChordLensStructure)results=window.ChordLensStructure.refine(results,beatSettings(),audioBuffer.duration);if(!results.length)throw new Error('분석할 구간이 없습니다.');renderResults();$('exportCsv').disabled=false;$('printScore').disabled=false;setStatus('analysisStatus',`완료: ${results.length}개 구간 · 코드명은 음향 특징으로 추정한 결과입니다.`);selectResult(0);}catch(err){setStatus('analysisStatus',err.message||'분석 중 오류가 발생했습니다.',true);console.error(err);}finally{btn.disabled=false;}});
 
-  // Accuracy v1: multi-window chroma and temporal dynamic programming.
-  // Still a heuristic estimator, not a trained chord-recognition model.
   function analyzeBuffer(buffer,hopSeconds){
-    const sr=buffer.sampleRate, size=8192, hop=Math.max(1,Math.floor(sr*hopSeconds));
-    const left=buffer.getChannelData(0),right=buffer.numberOfChannels>1?buffer.getChannelData(1):null;
-    const mono=new Float32Array(left.length);
-    for(let i=0;i<mono.length;i++)mono[i]=right?(left[i]+right[i])*.5:left[i];
-    const frames=[];
-    for(let start=0;start+size<=mono.length;start+=hop){
-      const chroma=new Float64Array(12),re=new Float64Array(size),im=new Float64Array(size);
-      let energy=0;
-      for(let i=0;i<size;i++){const x=mono[start+i];energy+=x*x;re[i]=x*(.5-.5*Math.cos(2*Math.PI*i/(size-1)));}
-      const begin=start/sr,end=Math.min((start+hop)/sr,buffer.duration);
-      if(energy/size<1e-7){frames.push({start:begin,end,chroma:null});continue;}
+    const size=4096, sr=buffer.sampleRate, ch0=buffer.getChannelData(0), ch1=buffer.numberOfChannels>1?buffer.getChannelData(1):null;
+    const mono=new Float32Array(ch0.length); for(let i=0;i<mono.length;i++)mono[i]=ch1?(ch0[i]+ch1[i])*.5:ch0[i];
+    const hop=Math.max(1,Math.floor(sr*hopSeconds)); const frames=[];
+    for(let start=0;start<mono.length;start+=hop){ if(start+size>mono.length)break; const chroma=new Float64Array(12), re=new Float64Array(size), im=new Float64Array(size); let energy=0;
+      for(let i=0;i<size;i++){const v=mono[start+i]*(0.5-0.5*Math.cos(2*Math.PI*i/(size-1)));re[i]=v;energy+=v*v;}
+      if(energy/size<1e-7) {frames.push({start:start/sr,end:Math.min((start+hop)/sr,buffer.duration),chord:'N',confidence:0});continue;}
       fft(re,im);
-      // Local spectral peaks reduce broadband/percussive contamination.
-      // Fractional pitch-bin mapping avoids rounding every peak to one note.
-      for(let k=3;k<size/2-1;k++){
-        const freq=k*sr/size;if(freq<65||freq>1600)continue;
-        const mag=Math.hypot(re[k],im[k]);
-        if(mag<=Math.hypot(re[k-1],im[k-1])||mag<Math.hypot(re[k+1],im[k+1]))continue;
-        const midi=69+12*Math.log2(freq/440),pitch=((midi%12)+12)%12;
-        const low=Math.floor(pitch),frac=pitch-low;
-        const weight=Math.sqrt(mag)/Math.pow(freq,.20);
-        chroma[low%12]+=weight*(1-frac);chroma[(low+1)%12]+=weight*frac;
-      }
-      const norm=Math.hypot(...chroma);
-      if(norm<1e-9){frames.push({start:begin,end,chroma:null});continue;}
-      for(let i=0;i<12;i++)chroma[i]/=norm;
-      frames.push({start:begin,end,chroma});
+      for(let k=2;k<size/2;k++){const freq=k*sr/size;if(freq<55||freq>1500)continue;const mag=Math.hypot(re[k],im[k]);const midi=Math.round(69+12*Math.log2(freq/440));const pc=((midi%12)+12)%12;const weight=mag/Math.pow(freq,.35);chroma[pc]+=weight;}
+      const norm=Math.sqrt(chroma.reduce((a,b)=>a+b*b,0))||1;for(let i=0;i<12;i++)chroma[i]/=norm;
+      const match=bestChord(chroma);frames.push({start:start/sr,end:Math.min((start+hop)/sr,buffer.duration),chord:match.chord,confidence:match.score});
     }
-    if(!frames.length)return [];
-    const candidates=[];
-    for(let root=0;root<12;root++)for(const minor of [false,true]){
-      const tpl=new Float64Array(12);tpl[root]=1;tpl[(root+(minor?3:4))%12]=.90;tpl[(root+7)%12]=.78;
-      const norm=Math.hypot(...tpl);for(let i=0;i<12;i++)tpl[i]/=norm;
-      candidates.push({name:NOTES[root]+(minor?'m':''),tpl});
+    // Smooth the per-frame predictions with a temporal model instead of splitting
+    // a sustained chord every four seconds. This reduces flicker, not pitch errors.
+    const stable=stabilizeChords(frames,hopSeconds);
+    const grouped=[];
+    for(const f of stable){
+      const last=grouped[grouped.length-1];
+      if(last && last.chord===f.chord){
+        const oldDuration=last.end-last.start, newDuration=f.end-f.start;
+        last.confidence=(last.confidence*oldDuration+f.confidence*newDuration)/(oldDuration+newDuration);
+        last.end=f.end;
+      } else grouped.push({...f});
     }
-    const count=candidates.length, dp=[], back=[];
-    const changePenalty=.17; // higher = fewer spurious chord changes
-    for(let t=0;t<frames.length;t++){
-      const f=frames[t];const scores=candidates.map(c=>{
-        if(!f.chroma)return -1;
-        let dot=0;for(let i=0;i<12;i++)dot+=f.chroma[i]*c.tpl[i];
-        return dot;
-      });
-      const row=new Float64Array(count),prev=new Int16Array(count);
-      if(t===0){for(let c=0;c<count;c++)row[c]=scores[c];}
-      else{
-        let best=-Infinity,second=-Infinity,bestIdx=-1,secondIdx=-1;
-        for(let c=0;c<count;c++){const v=dp[t-1][c];if(v>best){second=best;secondIdx=bestIdx;best=v;bestIdx=c;}else if(v>second){second=v;secondIdx=c;}}
-        for(let c=0;c<count;c++){
-          const stay=dp[t-1][c],switchFrom=bestIdx===c?second:best,switchIdx=bestIdx===c?secondIdx:bestIdx;
-          if(stay>=switchFrom-changePenalty){row[c]=stay+scores[c];prev[c]=c;}
-          else{row[c]=switchFrom-changePenalty+scores[c];prev[c]=switchIdx;}
-        }
-      }
-      dp.push(row);back.push(prev);
-    }
-    let state=0;for(let c=1;c<count;c++)if(dp[dp.length-1][c]>dp[dp.length-1][state])state=c;
-    const labeled=new Array(frames.length);
-    for(let t=frames.length-1;t>=0;t--){
-      const f=frames[t],chord=f.chroma?candidates[state].name:'N';
-      let score=0;if(f.chroma)for(let i=0;i<12;i++)score+=f.chroma[i]*candidates[state].tpl[i];
-      labeled[t]={start:f.start,end:f.end,chord,confidence:Math.max(0,Math.min(1,score))};
-      if(t>0)state=back[t][state];
-    }
-    // Merge short runs; do not fill actual silence with invented chords.
-    const stable=stabilizeChords(labeled,hopSeconds),grouped=[];
-    for(const f of stable){const last=grouped[grouped.length-1];
-      if(last&&last.chord===f.chord){const d=last.end-last.start,n=f.end-f.start;last.confidence=(last.confidence*d+f.confidence*n)/(d+n);last.end=f.end;}
-      else grouped.push({...f});
-    }
-    if(grouped.length)grouped[grouped.length-1].end=buffer.duration;
     return grouped.filter(r=>r.end-r.start>.05);
   }
   function stabilizeChords(frames,hopSeconds){
-    const out=frames.map(f=>({...f}));const minDuration=Math.max(.35,Math.min(1.15,hopSeconds*1.8));
+    if(!frames.length)return [];
+    // A 3-frame majority filter rejects isolated single-frame chord changes.
+    const filtered=frames.map((frame,i)=>{
+      if(i===0||i===frames.length-1)return {...frame};
+      const before=frames[i-1],after=frames[i+1];
+      if(before.chord===after.chord && frame.chord!==before.chord &&
+         frame.chord!=='N' && before.chord!=='N')
+        return {...frame,chord:before.chord,confidence:Math.min(frame.confidence,before.confidence,after.confidence)};
+      return {...frame};
+    });
+    // Merge brief runs into the most supported neighboring chord.
+    // Silence (N) is preserved instead of being guessed as harmony.
+    const minSeconds=Math.max(.45,Math.min(1.1,hopSeconds*2.2));
     for(let pass=0;pass<2;pass++){
-      const runs=[];for(let i=0;i<out.length;){let j=i+1;while(j<out.length&&out[j].chord===out[i].chord)j++;runs.push({i,j,chord:out[i].chord,duration:out[j-1].end-out[i].start});i=j;}
+      const runs=[];
+      for(let i=0;i<filtered.length;){let j=i+1;while(j<filtered.length&&filtered[j].chord===filtered[i].chord)j++;
+        runs.push({i,j,chord:filtered[i].chord,start:filtered[i].start,end:filtered[j-1].end});i=j;}
       let changed=false;
-      for(let k=1;k<runs.length-1;k++){
-        const run=runs[k],left=runs[k-1],right=runs[k+1];
-        if(run.chord==='N'||run.duration>=minDuration||left.chord==='N'||right.chord==='N')continue;
-        const target=left.chord===right.chord?left:(left.duration>=right.duration?left:right);
-        for(let i=run.i;i<run.j;i++){out[i].chord=target.chord;out[i].confidence=Math.min(out[i].confidence,.6);}changed=true;
+      for(let k=0;k<runs.length;k++){
+        const run=runs[k];if(run.chord==='N'||run.end-run.start>=minSeconds)continue;
+        const left=runs[k-1],right=runs[k+1];
+        const candidates=[left,right].filter(r=>r&&r.chord!=='N');
+        if(!candidates.length)continue;
+        const target=left&&right&&left.chord===right.chord?left:
+          candidates.reduce((best,r)=>!best||r.end-r.start>best.end-best.start?r:best,null);
+        for(let i=run.i;i<run.j;i++){filtered[i].chord=target.chord;filtered[i].confidence=Math.min(filtered[i].confidence,.65);}
+        changed=true;
       }
       if(!changed)break;
     }
-    return out;
+    return filtered;
   }
   function fft(re,im){const n=re.length;for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]];}}for(let len=2;len<=n;len<<=1){const angle=-2*Math.PI/len,wr0=Math.cos(angle),wi0=Math.sin(angle);for(let i=0;i<n;i+=len){let wr=1,wi=0;for(let j=0;j<len/2;j++){const u=i+j,v=i+j+len/2,tr=wr*re[v]-wi*im[v],ti=wr*im[v]+wi*re[v];re[v]=re[u]-tr;im[v]=im[u]-ti;re[u]+=tr;im[u]+=ti;const nw=wr*wr0-wi*wi0;wi=wr*wi0+wi*wr0;wr=nw;}}}}
   function bestChord(chroma){let best={chord:'N',score:0};for(let root=0;root<12;root++)for(const q of ['maj','min']){const template=new Array(12).fill(0);template[root]=1;template[(root+(q==='maj'?4:3))%12]=.85;template[(root+7)%12]=.75;template[(root+2)%12]=.08;template[(root+9)%12]=.08;let dot=0,norm=0;for(let i=0;i<12;i++){dot+=chroma[i]*template[i];norm+=template[i]*template[i];}const score=dot/Math.sqrt(norm);if(score>best.score)best={chord:NOTES[root]+(q==='min'?'m':''),score};}return best;}
@@ -159,6 +128,20 @@
     if(!results.length){score.innerHTML='<div class="empty-state">분석하면 마디별 코드 악보가 표시됩니다.</div>';return;}
     const {bpm,beats,offset,beatDuration,measureDuration}=beatSettings();
     const duration=audioBuffer?.duration||results[results.length-1].end;
+    if(window.ChordLensStructure){
+      const phrases=window.ChordLensStructure.phrases(results,beatSettings(),duration);
+      const overview=document.createElement('div');overview.className='structure-overview';
+      const title=document.createElement('strong');title.textContent='곡 진행 요약 (4마디 단위 · 추정)';overview.appendChild(title);
+      const line=document.createElement('div');line.className='structure-phrases';
+      for(const phrase of phrases){
+        const b=document.createElement('button');b.type='button';b.className='structure-phrase';
+        b.textContent=phrase.label+' · '+(phrase.chords.slice(0,5).join(' → ')||'N');
+        b.title=fmtTime(phrase.start)+'–'+fmtTime(phrase.end);
+        b.addEventListener('click',()=>{player.currentTime=phrase.start;updateBeatHighlight();});
+        line.appendChild(b);
+      }
+      overview.appendChild(line);score.appendChild(overview);
+    }
     const count=Math.min(1000,Math.max(0,Math.ceil((duration-offset)/measureDuration)));
     for(let m=0;m<count;m++){
       const start=offset+m*measureDuration;
