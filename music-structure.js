@@ -13,7 +13,7 @@
     const out = segments.map(x => ({...x}));
     for (let i = 1; i < out.length; i++) {
       const prev = out[i - 1], curr = out[i];
-      if (prev.chord === 'N' || curr.chord === 'N') continue;
+      if (prev.chord === 'N' || curr.chord === 'N' || Math.min(prev.confidence ?? 0, curr.confidence ?? 0) < .60) continue;
       const boundary = curr.start;
       const nearest = offset + Math.round((boundary - offset) / grid) * grid;
       if (Math.abs(nearest - boundary) <= maxShift &&
