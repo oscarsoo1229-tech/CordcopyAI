@@ -109,6 +109,7 @@
   ['referenceCapo','referenceText','referenceMode','songBpm','timeSignature','beatOffset','referenceAligned'].forEach(id=>{
     $(id).addEventListener('input',invalidate);$(id).addEventListener('change',invalidate);
   });
-  // The original ZIP exporter includes these three files after a valid comparison.
+  // Register with the main ZIP exporter. Keep the legacy property for older app.js builds.
+  window.ChordLensEvaluationBridge?.setReferenceExportProvider?.(exportFiles);
   ref.getExportFiles=exportFiles;
 })();

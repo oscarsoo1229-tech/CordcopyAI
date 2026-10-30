@@ -11,6 +11,7 @@
   const ROOT_ALIASES = {'Db':'C♯','Eb':'D♯','Gb':'F♯','Ab':'G♯','Bb':'A♯','A#':'A♯','C#':'C♯','D#':'D♯','F#':'F♯','G#':'G♯'};
   let audioBuffer = null, audioUrl = null, sourceName = '', results = [], selectedIndex = -1, looping = false, loopTimer = null;
   let diagnosticFrames = []; // Local, per-analysis measurements. Never uploaded.
+  let referenceExportProvider = null; // Registered by reference-ui.js after it loads.
   let analysisRevision = 0; // invalidates reference evaluations after reanalysis / new upload
   const player = $('audioPlayer');
 
@@ -279,6 +280,13 @@
     const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;
     document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
   }
+  function referenceExportFiles(){
+    const provider=referenceExportProvider||window.ChordLensReference?.getExportFiles;
+    if(typeof provider!=='function')return [];
+    const files=provider();
+    if(!Array.isArray(files))throw new Error('정답 비교 내보내기 결과 형식이 올바르지 않습니다.');
+    return files;
+  }
   async function diagnosticCsvBlob(onProgress){
     if(!diagnosticFrames.length||!results.length)throw new Error('진단 데이터가 없습니다. 먼저 음원을 분석해 주세요.');
     const harmonic=window.ChordLensHarmony;
@@ -342,15 +350,19 @@
       const diagnostics=await diagnosticCsvBlob(p=>btn.textContent=`전체 결과 준비 ${p}%`);
       btn.textContent='ZIP 생성 중…';await new Promise(resolve=>setTimeout(resolve,0));
       const entries=[{name:'chords.csv',bytes:new Uint8Array(await chords.arrayBuffer())},{name:'diagnostics.csv',bytes:new Uint8Array(await diagnostics.arrayBuffer())}];
-      const extras=window.ChordLensReference?.getExportFiles?.()||[];
+      const extras=referenceExportFiles();
+      const comparisonVisible=$('referenceResults')&&!$('referenceResults').hidden;
+      const comparisonReady=$('exportReferenceEvaluation')&&!$('exportReferenceEvaluation').disabled;
+      if((comparisonVisible||comparisonReady)&&!extras.length)throw new Error('정답 비교 결과를 ZIP에 연결하지 못했습니다. 페이지를 새로고침한 뒤 정답 비교를 다시 실행해 주세요.');
+      if(extras.length&&!extras.some(extra=>extra.name==='boundary_diagnostics.csv'))throw new Error('정답 비교 결과에 boundary_diagnostics.csv가 없습니다. 정답 비교를 다시 실행해 주세요.');
       for(const extra of extras)entries.push({name:extra.name,bytes:new Uint8Array(await extra.blob.arrayBuffer())});
       const archive=zipArchive(entries);
       const base=(sourceName||'chordlens').replace(/\.[^.]+$/,'').replace(/[^a-zA-Z0-9가-힣_-]+/g,'_').slice(0,55)||'chordlens';
-      downloadBlob(archive,`${base}_analysis.zip`);
-      setStatus('analysisStatus',`전체 결과 ZIP 저장 완료: chords.csv + diagnostics.csv${extras.length?' + 정답 비교 CSV 4개':''}`);
+      downloadBlob(archive,`${base}_${extras.length?'full_results':'analysis'}.zip`);
+      setStatus('analysisStatus',extras.length?`전체 결과 ZIP 저장 완료: 기본 분석 CSV 2개 + 정답 비교 CSV ${extras.length}개`:'분석 ZIP 저장 완료: 정답 비교 결과는 포함되지 않았습니다.');
     }catch(err){console.error('Bundle export failed',err);setStatus('analysisStatus',`전체 결과 저장 오류: ${err.message||String(err)}`,true);}
     finally{btn.disabled=false;btn.textContent=original;}
   });
-  window.ChordLensEvaluationBridge={getSegments:()=>results.map(r=>({...r})),getDuration:()=>audioBuffer?.duration||0,getRevision:()=>analysisRevision,getSourceName:()=>sourceName};
+  window.ChordLensEvaluationBridge={getSegments:()=>results.map(r=>({...r})),getDuration:()=>audioBuffer?.duration||0,getRevision:()=>analysisRevision,getSourceName:()=>sourceName,setReferenceExportProvider:provider=>{referenceExportProvider=typeof provider==='function'?provider:null;}};
   if('serviceWorker' in navigator && location.protocol!=='file:'){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('Service worker registration failed',e)));}
 })();
